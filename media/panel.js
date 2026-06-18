@@ -124,8 +124,13 @@ function colorControl(row, name) {
   if (dec) { picker.value = dec.hex; hex.value = dec.hex.toUpperCase(); swatch.style.background = dec.hex; alpha.value = dec.aPct; }
   else { swatch.style.background = 'transparent'; alpha.value = 100; }
   function commit(newCode) { postEdit('styles', row.line, idx, newCode); }
-  picker.oninput = () => { const c = encFromWeb(picker.value, Number(alpha.value)/100); code.value = c; commit(c); };
-  alpha.oninput = () => { const c = encFromWeb(picker.value, Number(alpha.value)/100); code.value = c; commit(c); };
+  // Important #4: use onchange (commit ONE edit on release) instead of oninput
+  // (one WorkspaceEdit per pointer-move) to avoid flooding the undo stack.
+  picker.onchange = () => { const c = encFromWeb(picker.value, Number(alpha.value)/100); code.value = c; hex.value = picker.value.toUpperCase(); commit(c); };
+  alpha.onchange = () => { const c = encFromWeb(picker.value, Number(alpha.value)/100); code.value = c; commit(c); };
+  // The hex box mirrors the picker's RRGGBB; keep it display-only so it never
+  // looks editable-but-inert. (The full &HAABBGGRR code is editable below.)
+  hex.readOnly = true;
   code.onchange = () => { commit(code.value.trim()); };
   wrap.append(swatch, picker, hex, alpha, code);
   return wrap;
@@ -134,6 +139,9 @@ function colorControl(row, name) {
 // Web-side ASS color decode/encode mirrors src/assColor.ts.
 function decodeOnWeb(code) {
   const m = /^&H([0-9A-Fa-f]+)&?$/.exec((code || '').trim()); if (!m) return null;
+  // Important #3: parity with host parseAssColor — reject malformed/overlong
+  // codes before padding so the swatch doesn't render garbage.
+  if (m[1].length > 8 || m[1].length < 3) return null;
   let h = m[1].toUpperCase().padStart(8, '0');
   const aa = parseInt(h.slice(0,2),16), bb = parseInt(h.slice(2,4),16), gg = parseInt(h.slice(4,6),16), rr = parseInt(h.slice(6,8),16);
   const hex = '#' + [rr,gg,bb].map(n=>n.toString(16).padStart(2,'0')).join('');

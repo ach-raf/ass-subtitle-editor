@@ -56,6 +56,17 @@ describe('assParser', () => {
     assert.strictEqual(reemitAss(parseAss(text)), text);
   });
 
+  it('computes valueStart from match offsets when value equals the key (Title: Title)', () => {
+    // Regression: a naive `indexOf(value)` points at the KEY, so editing the
+    // value would overwrite the key. valueRange must slice to the value
+    // occurrence (offset 7), not offset 0.
+    const model = parseAss('[Script Info]\nTitle: Title\n');
+    const entry = model.scriptInfo.find((e) => e.key === 'Title')!;
+    assert.strictEqual(entry.value, 'Title');
+    assert.strictEqual(entry.raw.slice(entry.valueRange.startChar, entry.valueRange.endChar), 'Title');
+    assert.strictEqual(entry.valueRange.startChar, 7); // after "Title: "
+  });
+
   it('detects and round-trips a BOM', () => {
     const bomText = '﻿' + read('sample.ass');
     const model = parseAss(bomText);

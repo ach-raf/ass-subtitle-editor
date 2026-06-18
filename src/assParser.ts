@@ -91,15 +91,21 @@ export function parseAss(raw: string): AssModel {
     }
 
     if (section === 'scriptInfo') {
-      const kv = /^([A-Za-z0-9_]+):\s?(.*)$/.exec(lineText);
+      const kv = /^([A-Za-z0-9_]+):( ?)(.*)$/.exec(lineText);
       if (kv) {
-        const valueStart = lineText.indexOf(kv[2]);
+        // Compute valueStart from the match offsets rather than
+        // `lineText.indexOf(value)`, which for `Title: Title` would find the
+        // value substring at the KEY position (offset 0) and cause value edits
+        // to overwrite the key. `kv[1]` is the key, `kv[2]` the leading spaces
+        // after the colon, `kv[3]` the value.
+        const leadingSpaces = kv[2];
+        const valueStart = (kv.index ?? 0) + kv[1].length + 1 + leadingSpaces.length;
         const entry: ScriptInfoEntry = {
           key: kv[1],
-          value: kv[2],
+          value: kv[3],
           line,
           raw: lineText,
-          valueRange: { line, startChar: valueStart, endChar: valueStart + kv[2].length },
+          valueRange: { line, startChar: valueStart, endChar: valueStart + kv[3].length },
         };
         model.scriptInfo.push(entry);
         return;
