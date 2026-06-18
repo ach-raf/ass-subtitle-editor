@@ -1,0 +1,47 @@
+{
+  "name": "ass-style-editor",
+  "displayName": "ASS Subtitle Editor",
+  "description": "Decode and edit Advanced SubStation Alpha (.ass) subtitle files.",
+  "version": "0.0.1",
+  "publisher": "local",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other"],
+  "main": "./dist/extension.js",
+  "activationEvents": ["onLanguage:ass"],
+  "contributes": {
+    "languages": [
+      { "id": "ass", "aliases": ["Advanced SubStation Alpha", "ass"], "extensions": [".ass"] }
+    ],
+    "grammars": [
+      { "language": "ass", "scopeName": "source.ass", "path": "./syntaxes/ass.tmLanguage.json" }
+    ],
+    "commands": [
+      { "command": "ass.openStyleEditor", "title": "ASS: Open Style Editor", "category": "ASS" }
+    ],
+    "menus": {
+      "commandPalette": [
+        { "command": "ass.openStyleEditor", "when": "resourceLangId == ass" }
+      ],
+      "editor/title": [
+        { "command": "ass.openStyleEditor", "when": "resourceLangId == ass", "group": "navigation" }
+      ]
+    }
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "compile": "npm run check-types && node esbuild.mjs --production",
+    "watch": "node esbuild.mjs --watch",
+    "test": "mocha",
+    "package": "vsce package --no-dependencies"
+  },
+  "dependencies": { "ass-compiler": "^0.1.16" },
+  "devDependencies": {
+    "@types/mocha": "^10.0.6",
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.20.0",
+    "mocha": "^10.2.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0"
+  }
+}

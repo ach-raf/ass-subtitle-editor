@@ -1,0 +1,1 @@
+{ "scopeName": "source.ass", "patterns": [{ "include": "#main" }], "repository": { "main": { "match": ".", "name": "meta.ass" } } }
