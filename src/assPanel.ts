@@ -1,7 +1,12 @@
 import * as vscode from 'vscode';
 import { AssDocument } from './assDocument';
-import { computeFieldEdit, rowStillValid } from './assEdit';
+import { computeFieldEdit, computeScriptInfoEdit, rowStillValid } from './assEdit';
+import { decodeDialogueTags } from './assTags';
 import type { AssModel, SectionRow } from './types';
+
+function stripRow(r: SectionRow) {
+  return { kind: r.kind, line: r.line, ok: r.ok, format: r.format, fields: r.fields };
+}
 
 export class AssPanel {
   private panel: vscode.WebviewPanel;
@@ -29,7 +34,16 @@ export class AssPanel {
 
   private send(model: AssModel): void {
     this.reindex(model);
-    this.panel.webview.postMessage({ type: 'model', model });
+    const view = {
+      bom: model.bom,
+      scriptInfo: model.scriptInfo.map((e) => ({ key: e.key, value: e.value, line: e.line })),
+      styles: { format: model.styles.format, rows: model.styles.rows.map(stripRow) },
+      events: {
+        format: model.events.format,
+        rows: model.events.rows.map((r) => ({ ...stripRow(r), tags: decodeDialogueTags(r.fields.Text ?? '') })),
+      },
+    };
+    this.panel.webview.postMessage({ type: 'model', model: view });
   }
 
   private reindex(model: AssModel): void {
@@ -43,7 +57,17 @@ export class AssPanel {
   }
 
   private async onEdit(msg: { section?: string; line?: number; fieldIndex?: number; value?: string }): Promise<void> {
-    if (msg.section === 'scriptInfo' || msg.line == null || msg.fieldIndex == null) return; // scriptInfo handled in Task 9
+    if (msg.section === 'scriptInfo') {
+      if (msg.line == null) return;
+      const entry = this.doc.model.scriptInfo.find((e) => e.line === msg.line);
+      if (!entry) return;
+      const e = computeScriptInfoEdit(entry, msg.value ?? '');
+      const ws = new vscode.WorkspaceEdit();
+      ws.replace(this.doc.doc.uri, new vscode.Range(e.line, e.startChar, e.line, e.endChar), e.newContent);
+      await vscode.workspace.applyEdit(ws);
+      return;
+    }
+    if (msg.line == null || msg.fieldIndex == null) return;
     const row = this.rowsByLine.get(msg.line);
     if (!row) return;
     // Stale-parse guard: confirm the live line still matches.

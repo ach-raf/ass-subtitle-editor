@@ -1,6 +1,8 @@
 const vscode = acquireVsCodeApi();
 const root = document.getElementById('root');
 let model = null;
+let tab = 'styles';
+function setTab(t) { tab = t; render(); }
 
 const STYLE_NUM_FIELDS = ['Fontsize','Bold','Italic','Underline','StrikeOut','ScaleX','ScaleY','Spacing','Angle','BorderStyle','Outline','Shadow','Alignment','MarginL','MarginR','MarginV','Encoding'];
 const STYLE_BOOL_FIELDS = ['Bold','Italic','Underline','StrikeOut'];
@@ -17,12 +19,63 @@ function fieldIndexByName(row, name) { return row.format.indexOf(name); }
 function render() {
   if (!model) return;
   root.innerHTML = '';
-  for (const row of model.styles.rows) {
-    root.appendChild(styleCard(row));
+  const tabs = document.createElement('div'); tabs.className = 'row';
+  for (const [t,label] of [['scriptInfo','Script Info'],['styles','Styles'],['events','Events']]) {
+    const b = document.createElement('button'); b.textContent = label;
+    if (t === tab) b.style.fontWeight = 'bold';
+    b.onclick = () => setTab(t);
+    tabs.appendChild(b);
   }
-  const add = document.createElement('button');
-  add.textContent = '+ add style (TODO in Task 10)';
-  root.appendChild(add);
+  root.appendChild(tabs);
+  if (tab === 'styles') model.styles.rows.forEach((r) => root.appendChild(styleCard(r)));
+  if (tab === 'scriptInfo') model.scriptInfo.forEach((e) => root.appendChild(scriptInfoRow(e)));
+  if (tab === 'events') root.appendChild(eventsList(model.events));
+}
+
+function scriptInfoRow(e) {
+  const wrap = document.createElement('div'); wrap.className = 'row';
+  const k = document.createElement('label'); k.textContent = e.key + ' '; k.style.minWidth = '160px';
+  const inp = document.createElement('input'); inp.type = 'text'; inp.value = e.value || '';
+  inp.onchange = () => vscode.postMessage({ type: 'edit', section: 'scriptInfo', line: e.line, fieldIndex: -1, value: inp.value });
+  wrap.append(k, inp); return wrap;
+}
+
+function eventsList(events) {
+  const wrap = document.createElement('div');
+  const search = document.createElement('input'); search.type = 'text'; search.placeholder = 'filter…';
+  const list = document.createElement('div');
+  function draw() {
+    list.innerHTML = '';
+    const q = search.value.toLowerCase();
+    events.rows.filter((r) => !q || (r.fields.Text || '').toLowerCase().includes(q)).forEach((r) => list.appendChild(eventRow(events, r)));
+  }
+  search.oninput = draw; draw();
+  wrap.append(search, list); return wrap;
+}
+
+function eventRow(events, r) {
+  const card = document.createElement('div'); card.className = 'card';
+  const head = document.createElement('div'); head.className = 'row';
+  const start = textIn(r, 'Start'); const end = textIn(r, 'End');
+  const styleSel = document.createElement('select');
+  model.styles.rows.forEach((s) => { const o = document.createElement('option'); o.value = o.textContent = s.fields.Name; styleSel.appendChild(o); });
+  styleSel.value = r.fields.Style || '';
+  styleSel.onchange = () => postEdit('events', r.line, fieldIndexByName(r, 'Style'), styleSel.value);
+  head.append(start, end, styleSel);
+  const text = document.createElement('textarea'); text.rows = 2; text.value = r.fields.Text || '';
+  text.onchange = () => postEdit('events', r.line, fieldIndexByName(r, 'Text'), text.value);
+  card.append(head, text);
+  if (r.tags && r.tags.length) {
+    const chips = document.createElement('div'); chips.className = 'muted';
+    chips.textContent = 'tags: ' + r.tags.map((t) => '\\' + t.name + (t.value ? '(' + t.value + ')' : '')).join(' ');
+    card.appendChild(chips);
+  }
+  return card;
+}
+function textIn(row, name) {
+  const inp = document.createElement('input'); inp.type = 'text'; inp.value = row.fields[name] || ''; inp.size = 10;
+  inp.onchange = () => postEdit('events', row.line, fieldIndexByName(row, name), inp.value);
+  return inp;
 }
 
 function styleCard(row) {
