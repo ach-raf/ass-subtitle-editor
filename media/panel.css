@@ -1,0 +1,12 @@
+body { font-family: var(--vscode-font-family); color: var(--vscode-editor-foreground); background: var(--vscode-editor-background); margin: 12px; }
+.card { border: 1px solid var(--vscode-panel-border); border-radius: 4px; padding: 10px; margin-bottom: 10px; }
+.card h3 { margin: 0 0 8px; color: var(--vscode-foreground); }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+label { color: var(--vscode-descriptionForeground); font-size: 12px; }
+input[type=text], input[type=number], select {
+  background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border); padding: 2px 4px;
+}
+.swatch { width: 20px; height: 20px; border: 1px solid var(--vscode-panel-border); display: inline-block; }
+.muted { color: var(--vscode-descriptionForeground); }
+.warn { color: var(--vscode-editorWarning-foreground); }
