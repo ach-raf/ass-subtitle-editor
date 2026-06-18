@@ -30,9 +30,13 @@ export function rowStillValid(currentLineText: string, row: SectionRow): boolean
   if (colonIdx === -1) return false;
   const valuePart = currentLineText.slice(colonIdx + 1).replace(/^\s+/, '');
   const commas = countCommas(valuePart);
-  // Must match exactly; if the line was edited to add/remove fields,
-  // the parse is stale and the edit must be aborted.
-  return commas === row.format.length - 1;
+  // A line is structurally still a valid row if it has at least
+  // `format.length - 1` commas. The greedy trailing field (e.g. the Events
+  // `Text` field) legitimately absorbs any extra commas contained in its
+  // content (e.g. `Dialogue: ...,Default,,0,0,0,,Hello, world`). Fewer than
+  // `format.length - 1` commas means a field was lost, so the stored ranges
+  // are stale and the edit must be aborted.
+  return commas >= row.format.length - 1;
 }
 
 function countCommas(s: string): number {

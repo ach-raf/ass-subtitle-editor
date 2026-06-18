@@ -37,7 +37,13 @@ describe('assEdit', () => {
     assert.strictEqual(rowStillValid(row.raw, row), true);
   });
 
-  it('rowStillValid detects an added comma (stale parse)', () => {
-    assert.strictEqual(rowStillValid('Style: Default,Arial,40,99', row), false);
+  it('rowStillValid treats extra commas as still valid (greedy last field)', () => {
+    // 3 commas >= 2 (format.length - 1); the trailing field absorbs "40,99".
+    assert.strictEqual(rowStillValid('Style: Default,Arial,40,99', row), true);
+  });
+
+  it('rowStillValid detects a lost comma (stale parse)', () => {
+    // 1 comma < 2; a field was dropped, so stored ranges are stale.
+    assert.strictEqual(rowStillValid('Style: Default,Arial', row), false);
   });
 });
