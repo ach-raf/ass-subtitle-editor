@@ -1,0 +1,30 @@
+[Script Info]
+; Title: Episode 01 - Cold Open
+; Translated by: fansub group
+; Source: Blu-ray
+ScriptType: v4.00+
+Collisions: Normal
+PlayResX: 1920
+PlayResY: 1080
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+YCbCr Matrix: TV.709
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Opal,73,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2.6,1.3,2,90,90,60,1
+Style: Italics,Opal,73,&H0000EBE2,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,2.6,1.3,2,90,90,60,1
+Style: Top,Opal,64,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2.5,0,8,40,40,25,1
+Style: Sign,Arial Black,52,&H00F2F2F2,&H000000FF,&H00101010,&H80000000,0,0,0,0,100,100,0,0,3,0,0,5,40,40,40,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:03.12,0:00:05.84,Default,Male,0,0,0,,You're finally awake.
+Dialogue: 0,0:00:06.07,0:00:08.91,Default,Female,0,0,0,,{\fad(150,150)}I've been waiting for hours.
+Dialogue: 0,0:00:09.50,0:00:12.10,Italics,Male,0,0,0,,{\i1}She's lying.{\i0}
+Dialogue: 0,0:00:13.00,0:00:15.30,Default,,0,0,0,,{\c&H0000FF&}What do you mean?{\c}
+Dialogue: 0,0,0:00:02.00,Top,Sign,0,0,0,,{\fad(200,200)\pos(960,40)}EPISODE 01
+Dialogue: 1,0:00:13.00,0:00:15.30,Top,,0,0,0,,{\pos(1700,40)\fad(0,150)}3
+Comment: 0,0:00:16.00,0:00:17.00,Default,Male,0,0,0,,{\blur3}TODO: re-time this line to the lip flap
+Dialogue: 0,0:00:18.22,0:00:21.05,Default,Male,0,0,0,,{\b1}Run{\b0}, before it's too late.
+Dialogue: 0,0:00:22.40,0:00:24.80,Sign,,0,0,0,,{\pos(480,540)\fad(300,300)\c&H0080FF&}DANGER

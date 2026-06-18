@@ -1,6 +1,7 @@
 import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
+import { readdirSync } from 'node:fs';
 import { parseAss, reemitAss } from '../assParser';
 
 const FIX = path.join(__dirname, 'fixtures');
@@ -61,4 +62,13 @@ describe('assParser', () => {
     assert.strictEqual(model.bom, true);
     assert.strictEqual(reemitAss(model), bomText);
   });
+});
+
+describe('assParser round-trip (all fixtures)', () => {
+  for (const name of readdirSync(FIX).filter((f) => f.endsWith('.ass'))) {
+    it(`round-trips ${name} byte-for-byte`, () => {
+      const text = read(name);
+      assert.strictEqual(reemitAss(parseAss(text)), text);
+    });
+  }
 });
