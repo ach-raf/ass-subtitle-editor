@@ -1,1 +1,58 @@
-{ "scopeName": "source.ass", "patterns": [{ "include": "#main" }], "repository": { "main": { "match": ".", "name": "meta.ass" } } }
+{
+  "scopeName": "source.ass",
+  "name": "Advanced SubStation Alpha",
+  "patterns": [{ "include": "#main" }],
+  "repository": {
+    "main": {
+      "patterns": [
+        { "include": "#comment" },
+        { "include": "#section" },
+        { "include": "#format-line" },
+        { "include": "#row-line" },
+        { "include": "#scriptinfo" }
+      ]
+    },
+    "comment": { "match": "^;.*$", "name": "comment.line.ass" },
+    "section": { "match": "^\\[[^\\]]+\\]", "name": "entity.name.section.ass" },
+    "format-line": {
+      "match": "^Format:\\s*(.*)$",
+      "captures": {
+        "0": { "name": "keyword.control.format.ass" },
+        "1": { "name": "string.unquoted.ass" }
+      }
+    },
+    "row-line": {
+      "match": "^(Style|Dialogue|Comment):\\s*(.*)$",
+      "captures": {
+        "1": { "name": "keyword.control.row.ass" },
+        "2": { "patterns": [{ "include": "#row-fields" }] }
+      }
+    },
+    "row-fields": {
+      "patterns": [
+        { "include": "#timestamp" },
+        { "include": "#color" },
+        { "include": "#override" }
+      ]
+    },
+    "scriptinfo": {
+      "match": "^([A-Za-z0-9_]+):\\s?(.*)$",
+      "captures": {
+        "1": { "name": "support.type.property-name.ass" },
+        "2": { "name": "string.unquoted.ass" }
+      }
+    },
+    "timestamp": {
+      "match": "\\d+:\\d{2}:\\d{2}\\.\\d{2}",
+      "name": "constant.numeric.timestamp.ass"
+    },
+    "color": {
+      "match": "&H[0-9A-Fa-f]+&?",
+      "name": "constant.language.color.ass"
+    },
+    "override": {
+      "match": "\\{[^}]*\\}",
+      "name": "meta.override.ass"
+    }
+  }
+}
