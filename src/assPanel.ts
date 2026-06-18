@@ -53,7 +53,33 @@ export class AssPanel {
 
   private async onMessage(msg: { type: string; section?: string; line?: number; fieldIndex?: number; value?: string }): Promise<void> {
     if (msg.type === 'edit') await this.onEdit(msg);
-    // addRow / duplicateRow / deleteRow dispatch added in Task 10.
+    if (msg.type === 'addRow' && msg.section === 'styles') return this.insertStyle(msg.line);
+    if (msg.type === 'duplicateRow' && msg.section === 'styles' && msg.line != null) return this.duplicateStyle(msg.line);
+    if (msg.type === 'deleteRow' && msg.section === 'styles' && msg.line != null) return this.deleteStyle(msg.line);
+  }
+
+  private async insertStyle(afterLine?: number): Promise<void> {
+    const rows = this.doc.model.styles.rows;
+    const template = rows[rows.length - 1];
+    const lineNo = afterLine ?? template?.line ?? this.doc.doc.lineCount - 1;
+    const text = template
+      ? template.raw
+      : 'Style: Default,Arial,40,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,1,2,20,20,20,1';
+    await this.insertLine(lineNo + 1, text);
+  }
+  private async duplicateStyle(line: number): Promise<void> {
+    const row = this.rowsByLine.get(line);
+    if (row) await this.insertLine(line + 1, row.raw);
+  }
+  private async deleteStyle(line: number): Promise<void> {
+    const ws = new vscode.WorkspaceEdit();
+    ws.delete(this.doc.doc.uri, this.doc.doc.lineAt(line).rangeIncludingLineBreak);
+    await vscode.workspace.applyEdit(ws);
+  }
+  private async insertLine(line: number, text: string): Promise<void> {
+    const ws = new vscode.WorkspaceEdit();
+    ws.insert(this.doc.doc.uri, new vscode.Position(line, 0), text + '\n');
+    await vscode.workspace.applyEdit(ws);
   }
 
   private async onEdit(msg: { section?: string; line?: number; fieldIndex?: number; value?: string }): Promise<void> {

@@ -27,7 +27,12 @@ function render() {
     tabs.appendChild(b);
   }
   root.appendChild(tabs);
-  if (tab === 'styles') model.styles.rows.forEach((r) => root.appendChild(styleCard(r)));
+  if (tab === 'styles') {
+    model.styles.rows.forEach((r) => root.appendChild(styleCard(r)));
+    const add = document.createElement('button'); add.textContent = '+ add style';
+    add.onclick = () => vscode.postMessage({ type: 'addRow', section: 'styles' });
+    root.appendChild(add);
+  }
   if (tab === 'scriptInfo') model.scriptInfo.forEach((e) => root.appendChild(scriptInfoRow(e)));
   if (tab === 'events') root.appendChild(eventsList(model.events));
 }
@@ -85,6 +90,11 @@ function styleCard(row) {
   title.textContent = row.fields.Name || '(unnamed)';
   if (!row.ok) { title.textContent += ' ⚠ unparsed'; title.className = 'warn'; }
   card.appendChild(title);
+  const dup = document.createElement('button'); dup.textContent = 'dup';
+  dup.onclick = () => vscode.postMessage({ type: 'duplicateRow', section: 'styles', line: row.line });
+  const del = document.createElement('button'); del.textContent = 'del';
+  del.onclick = () => vscode.postMessage({ type: 'deleteRow', section: 'styles', line: row.line });
+  card.appendChild(dup); card.appendChild(del);
   if (!row.ok) { card.appendChild(muted('Field count does not match Format — not editable.')); return card; }
 
   for (const c of STYLE_COLOR_FIELDS) card.appendChild(colorControl(row, c));
