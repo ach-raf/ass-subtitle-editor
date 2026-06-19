@@ -498,6 +498,7 @@ function mountEventsList() {
     updateEventsMeta();
     return;
   }
+  scrollEl.replaceChildren();
   virtualList = createVirtualList({
     scrollEl,
     getCount: effectiveCount,
@@ -540,8 +541,14 @@ function setEventsFilter(q) {
   if (filterTimer) clearTimeout(filterTimer);
   filterTimer = setTimeout(() => {
     filteredIndices = filterRosterIndices(roster, eventsFilter);
-    if (scrollEl && virtualList) virtualList.setCount();
-    else mountEventsList();
+    if (effectiveCount() === 0) {
+      if (virtualList) { virtualList.destroy(); virtualList = null; }
+      scrollEl.replaceChildren(emptyState('No matching lines', 'Try a different filter or clear the search.'));
+      updateEventsMeta();
+      return;
+    }
+    if (!virtualList) mountEventsList();
+    else virtualList.setCount();
     updateEventsMeta();
   }, 120);
 }
