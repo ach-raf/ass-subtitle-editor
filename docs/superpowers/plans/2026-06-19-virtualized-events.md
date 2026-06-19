@@ -983,7 +983,7 @@ Add the imports at the very top of the file (after the header comment block, bef
 
 ```javascript
 import { createVirtualList } from './virtualList.js';
-import { filterRosterIndices, patchRosterEntry } from '../../../src/shared/roster.ts';
+import { filterRosterIndices, patchRosterEntry } from '../../src/shared/roster.ts';
 ```
 
 (Yes, the webview imports the host's shared TS — esbuild transpiles it; the `import type` inside it is erased, so no Node code reaches the bundle.)
