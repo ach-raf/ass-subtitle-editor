@@ -11,6 +11,7 @@ Decode and edit Advanced SubStation Alpha (`.ass`) subtitle files.
   - **Styles** — every field editable; colors via picker + hex + alpha slider with the raw `&HAABBGGRR` code always visible; numpad alignment; add / duplicate / delete.
   - **Script Info** — editable key/value rows for header metadata and play resolution.
   - **Events** — searchable list; edit Start / End / Style / Text; override tags shown decoded.
+- **Handles huge files** — events are virtualized, so files with tens of thousands of dialogue lines open instantly and scroll/search at 60fps.
 - **Two-way sync** — edits in the panel write back to the document (save with Ctrl+S); edits in the text editor refresh the panel.
 - **Lenient parsing** — malformed rows are flagged, never corrupted. Byte-exact round-trip for valid files.
 
