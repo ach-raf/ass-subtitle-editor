@@ -12,6 +12,9 @@
    color decode/encode are unchanged from the original panel.
    ========================================================================= */
 
+import { createVirtualList } from './virtualList.js';
+import { filterRosterIndices, patchRosterEntry } from '../../src/shared/roster.ts';
+
 // Standalone-safe: in the real webview acquireVsCodeApi() exists; in the
 // preview harness it is shimmed so this same file runs unmodified.
 const vscode = (typeof acquireVsCodeApi === 'function')
@@ -29,7 +32,17 @@ const collapsedStyles = new Set(); // keyed by style LINE (not name) so two
 const openEvents = new Set();       // keyed by event line (stable: events
                                     // can't be added/deleted from the panel)
 let eventsFilter = '';
-let eventsListNode = null;          // current DOM list node (events tab)
+
+/* ---------- events virtualization state -------------------------------- */
+const roster = [];                      // RosterRow[] (filled from host chunks)
+let rosterReady = false;                // all chunks received
+let rosterTotal = 0;                    // expected length while streaming
+const detailCache = new Map();          // line -> { fields, tags }
+const pendingDetail = new Set();        // lines already requested (coalesce)
+let filteredIndices = null;             // number[] into roster; null = all
+let virtualList = null;                 // createVirtualList() handle
+let scrollEl = null;                    // the events scroll container
+
 let focusStyleIndex = null;         // set on add/duplicate so the new card is
                                     // scrolled into view + name focused after
                                     // the host re-sends the model
@@ -99,7 +112,47 @@ function icon(name) {
 }
 
 /* ---------- top-level render ------------------------------------------ */
-window.addEventListener('message', (e) => { model = e.data.model; render(); });
+window.addEventListener('message', (e) => {
+  const msg = e.data;
+  switch (msg.type) {
+    case 'model':
+      model = { bom: msg.bom, scriptInfo: msg.scriptInfo, styles: msg.styles, events: msg.events };
+      render();
+      break;
+    case 'eventsRosterBegin':
+      roster.length = 0;
+      rosterTotal = msg.totalCount;
+      rosterReady = false;
+      detailCache.clear();
+      pendingDetail.clear();
+      filteredIndices = null;
+      showEventsProgress(0);
+      break;
+    case 'eventsRosterChunk':
+      for (const r of msg.rows) roster.push(r);
+      showEventsProgress(roster.length / Math.max(1, rosterTotal));
+      break;
+    case 'eventsRosterEnd':
+      rosterReady = true;
+      rosterTotal = roster.length;
+      filteredIndices = filterRosterIndices(roster, eventsFilter);
+      mountOrRepaintEvents();
+      showEventsProgress(1);
+      break;
+    case 'eventDetail':
+      detailCache.set(msg.detail.line, msg.detail);
+      pendingDetail.delete(msg.detail.line);
+      if (virtualList) virtualList.repaint(); // fill the expanded body
+      break;
+    case 'eventPatched':
+      patchRosterEntry(roster, msg.line, msg.roster);
+      detailCache.set(msg.line, msg.detail);
+      if (eventsFilter.trim()) filteredIndices = filterRosterIndices(roster, eventsFilter);
+      if (virtualList) virtualList.repaint();
+      updateEventsMeta();
+      break;
+  }
+});
 
 // Clear the pending add/duplicate focus intent on the first real user
 // interaction so the auto-focus never fights an in-progress edit. (Programmatic
@@ -111,7 +164,16 @@ function render() {
   if (!model) { root.replaceChildren(loadingState()); return; }
   const prev = document.querySelector('.ae-scroll');
   const top = prev ? prev.scrollTop : 0; // preserve scroll across re-render
-  eventsListNode = null;
+  // If we are staying on the events tab and the list is already mounted, a
+  // model re-send (e.g. after an edit) should NOT rebuild the whole shell —
+  // the eventPatched handler already repainted the affected row.
+  const alreadyOnEvents = tab === 'events' && document.querySelector('.ae-tabbar');
+  if (alreadyOnEvents && rosterReady) {
+    // Refresh non-events parts (styles select options etc.) cheaply by repainting.
+    if (virtualList) virtualList.repaint();
+    updateEventsMeta();
+    return;
+  }
   root.replaceChildren(appShell());
   const next = document.querySelector('.ae-scroll');
   if (next) next.scrollTop = top;
@@ -170,7 +232,7 @@ function tabButton(t, label) {
 function tabCount(t) {
   if (!model) return null;
   if (t === 'styles') return model.styles.rows.length;
-  if (t === 'events') return model.events.rows.length;
+  if (t === 'events') return model.events.count;
   if (t === 'scriptInfo') return model.scriptInfo.length;
   return null;
 }
@@ -195,11 +257,11 @@ function toolbar() {
   }
   if (tab === 'events') {
     const input = h('input', { class: 'ae-input', type: 'text', placeholder: 'Filter by text or style…', value: eventsFilter });
-    input.addEventListener('input', () => { eventsFilter = input.value; drawEventsList(); });
+    input.addEventListener('input', () => setEventsFilter(input.value));
     return h('div', { class: 'ae-toolbar' },
       h('div', { class: 'ae-search' }, icon('search'), input),
-      h('button', { class: 'ae-icon-btn', title: 'Expand all', onclick: () => { model.events.rows.forEach(r => openEvents.add(r.line)); drawEventsList(); } }, icon('unfold')),
-      h('button', { class: 'ae-icon-btn', title: 'Collapse all', onclick: () => { openEvents.clear(); drawEventsList(); } }, icon('fold')),
+      h('button', { class: 'ae-icon-btn', title: 'Expand all', onclick: () => { roster.forEach(r => openEvents.add(r.line)); if (virtualList) virtualList.repaint(); } }, icon('unfold')),
+      h('button', { class: 'ae-icon-btn', title: 'Collapse all', onclick: () => { openEvents.clear(); if (virtualList) virtualList.repaint(); } }, icon('fold')),
       h('div', { class: 'ae-spacer' }),
       h('span', { class: 'ae-toolbar-meta', id: 'ae-events-meta' }, eventsMetaText()),
     );
@@ -405,89 +467,166 @@ function fieldWith(label, control) {
   return h('div', { class: 'ae-field' }, h('label', null, label), control);
 }
 
-/* ---------- Events tab ------------------------------------------------ */
+/* ---------- Events tab (virtualized) ---------------------------------- */
 function eventsContent() {
-  const list = h('div', { class: 'ae-stack' });
-  eventsListNode = list;
-  drawEventsList();
-  return list;
+  const wrap = h('div', { class: 'ae-stack' });
+  const scroller = h('div', { class: 'ae-events-scroll' });
+  scrollEl = scroller;
+  const progress = h('div', { class: 'ae-events-progress', id: 'ae-events-progress' }, 'Loading events…');
+  wrap.appendChild(progress);
+  wrap.appendChild(scroller);
+  // The virtual list mounts once the roster is fully received (eventsRosterEnd).
+  if (rosterReady && model) {
+    filteredIndices = filterRosterIndices(roster, eventsFilter);
+    mountEventsList();
+  }
+  return wrap;
 }
-function drawEventsList() {
-  if (!eventsListNode) return;
-  const rows = filteredEvents();
-  eventsListNode.replaceChildren(...rows.map(r => eventCard(r)));
-  if (!rows.length) eventsListNode.replaceChildren(emptyState('No matching lines', 'Try a different filter or clear the search.'));
+
+function effectiveCount() {
+  return filteredIndices ? filteredIndices.length : roster.length;
+}
+function rosterAt(i) {
+  return roster[filteredIndices ? filteredIndices[i] : i];
+}
+
+function mountEventsList() {
+  if (!scrollEl) return;
+  if (virtualList) { virtualList.destroy(); virtualList = null; }
+  if (effectiveCount() === 0) {
+    scrollEl.replaceChildren(emptyState('No matching lines', 'Try a different filter or clear the search.'));
+    updateEventsMeta();
+    return;
+  }
+  virtualList = createVirtualList({
+    scrollEl,
+    getCount: effectiveCount,
+    getKey: (i) => rosterAt(i).line,
+    renderRow: (i) => eventCard(rosterAt(i)),
+    estimateSize: () => 56,
+    overscan: 8,
+  });
+  updateEventsMeta();
+}
+
+function mountOrRepaintEvents() {
+  if (!scrollEl) return;
+  if (!virtualList) mountEventsList();
+  else virtualList.setCount();
+}
+
+function updateEventsMeta() {
   const meta = document.getElementById('ae-events-meta');
   if (meta) meta.textContent = eventsMetaText();
 }
-function filteredEvents() {
-  const q = eventsFilter.trim().toLowerCase();
-  if (!q) return model.events.rows;
-  return model.events.rows.filter(r =>
-    (r.fields.Text || '').toLowerCase().includes(q) ||
-    (r.fields.Style || '').toLowerCase().includes(q));
-}
 function eventsMetaText() {
-  const total = model.events.rows.length;
-  const shown = filteredEvents().length;
+  const total = roster.length;
+  const shown = effectiveCount();
   return shown === total ? `${total} lines` : `${shown} of ${total} lines`;
+}
+
+function showEventsProgress(frac) {
+  const bar = document.getElementById('ae-events-progress');
+  if (!bar) return;
+  if (frac >= 1 && rosterReady) { bar.style.display = 'none'; return; }
+  bar.style.display = '';
+  bar.textContent = `Loading events… ${Math.round(frac * 100)}%`;
+}
+
+// Debounced filter: operate on the lightweight roster, no DOM rebuild.
+let filterTimer = null;
+function setEventsFilter(q) {
+  eventsFilter = q;
+  if (filterTimer) clearTimeout(filterTimer);
+  filterTimer = setTimeout(() => {
+    filteredIndices = filterRosterIndices(roster, eventsFilter);
+    if (scrollEl && virtualList) virtualList.setCount();
+    else mountEventsList();
+    updateEventsMeta();
+  }, 120);
 }
 
 function eventCard(r) {
   const open = openEvents.has(r.line);
-  const card = h('div', { class: 'ae-event', 'data-open': String(open) });
+  const detail = detailCache.get(r.line);
+  const card = h('div', { class: 'ae-event', 'data-open': String(open), 'data-line': String(r.line) });
 
   const head = h('div', { class: 'ae-event-head', role: 'button', tabindex: '0',
-    onclick: () => toggleEvent(r.line, card),
-    onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleEvent(r.line, card); } },
+    onclick: () => { toggleEvent(r.line); if (virtualList) virtualList.repaint(); },
+    onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleEvent(r.line); if (virtualList) virtualList.repaint(); } },
   },
-    h('span', { class: 'ae-event-chevron' }, icon('chevronRight')),
+    h('span', { class: 'ae-event-chevron' }, icon(open ? 'chevron' : 'chevronRight')),
     h('span', { class: 'ae-event-times' },
-      h('span', { class: 'ae-t' }, r.fields.Start || ''),
+      h('span', { class: 'ae-t' }, r.Start || ''),
       h('span', { class: 'ae-event-arrow' }, '→'),
-      h('span', { class: 'ae-t' }, r.fields.End || '')),
-    h('span', { class: 'ae-event-style-tag' }, r.fields.Style || '—'),
-    h('span', { class: 'ae-event-preview' }, stripTagsForPreview(r.fields.Text)),
+      h('span', { class: 'ae-t' }, r.End || '')),
+    h('span', { class: 'ae-event-style-tag' }, r.Style || '—'),
+    h('span', { class: 'ae-event-preview' }, r.preview || '(empty)'),
   );
   card.appendChild(head);
 
-  const styleSel = eventStyleSelect(r);
-  const textArea = h('textarea', { class: 'ae-textarea', rows: '2',
-    onchange: function () { postEdit('events', r.line, fieldIndexByName(r, 'Text'), this.value); } });
-  textArea.value = r.fields.Text || '';
+  if (!open) return card; // collapsed rows render from the roster only
 
-  const body = h('div', { class: 'ae-event-body' },
-    h('div', { class: 'ae-event-times-row' },
-      fieldWith('Start', eventTimeInput(r, 'Start')),
-      fieldWith('End', eventTimeInput(r, 'End')),
-      fieldWith('Style', styleSel)),
-    fieldWith('Text', textArea),
-    tagChips(r),
-  );
-  card.appendChild(body);
+  // Expanded: body needs full detail (Text + decoded tags). Fetch on demand.
+  if (!detail) {
+    requestDetail(r.line);
+    card.appendChild(h('div', { class: 'ae-event-body' }, h('div', { class: 'ae-empty' }, h('span', { class: 'ae-spinner' }), 'Loading…')));
+    return card;
+  }
+  card.appendChild(eventBody(r.line, detail));
   return card;
 }
-function toggleEvent(line, card) {
-  if (openEvents.has(line)) openEvents.delete(line);
-  else openEvents.add(line);
-  card.setAttribute('data-open', String(openEvents.has(line)));
+
+function eventBody(line, detail) {
+  const styleSel = eventStyleSelect(detail);
+  const textArea = h('textarea', { class: 'ae-textarea', rows: '2',
+    onchange: function () { postEdit('events', line, eventFieldIndex('Text'), this.value); } });
+  textArea.value = detail.fields.Text || '';
+  return h('div', { class: 'ae-event-body' },
+    h('div', { class: 'ae-event-times-row' },
+      fieldWith('Start', eventTimeInput(line, detail, 'Start')),
+      fieldWith('End', eventTimeInput(line, detail, 'End')),
+      fieldWith('Style', styleSel)),
+    fieldWith('Text', textArea),
+    tagChips(detail.tags),
+  );
 }
-function eventTimeInput(r, name) {
-  const inp = h('input', { class: 'ae-input ae-mono', type: 'text', value: r.fields[name] || '' });
-  inp.addEventListener('change', () => postEdit('events', r.line, fieldIndexByName(r, name), inp.value));
+
+function toggleEvent(line) {
+  if (openEvents.has(line)) openEvents.delete(line);
+  else { openEvents.add(line); requestDetail(line); }
+}
+
+function eventTimeInput(line, detail, name) {
+  const inp = h('input', { class: 'ae-input ae-mono', type: 'text', value: detail.fields[name] || '' });
+  inp.addEventListener('change', () => postEdit('events', line, eventFieldIndex(name), inp.value));
   return inp;
 }
-function eventStyleSelect(r) {
+function eventStyleSelect(detail) {
   const sel = h('select', { class: 'ae-select' });
   model.styles.rows.forEach(s => sel.appendChild(h('option', { value: s.fields.Name }, s.fields.Name || '(unnamed)')));
-  sel.value = r.fields.Style || '';
-  sel.addEventListener('change', () => postEdit('events', r.line, fieldIndexByName(r, 'Style'), sel.value));
+  sel.value = detail.fields.Style || '';
+  sel.addEventListener('change', () => postEdit('events', lineOfSelect(sel), eventFieldIndex('Style'), sel.value));
   return sel;
 }
-function tagChips(r) {
-  if (!r.tags || !r.tags.length) return null;
+function lineOfSelect(sel) {
+  const card = sel.closest('.ae-event');
+  return card ? Number(card.getAttribute('data-line')) : 0;
+}
+
+// All events share model.events.format; eventFieldIndex looks it up by name.
+function eventFieldIndex(name) { return model.events.format.indexOf(name); }
+
+function requestDetail(line) {
+  if (pendingDetail.has(line)) return;
+  pendingDetail.add(line);
+  post('getEventDetail', { lines: [line] });
+}
+
+function tagChips(tags) {
+  if (!tags || !tags.length) return null;
   const wrap = h('div', { class: 'ae-tags' });
-  r.tags.forEach(t => wrap.appendChild(tagChip(t)));
+  tags.forEach(t => wrap.appendChild(tagChip(t)));
   return wrap;
 }
 function tagChip(t) {
@@ -500,10 +639,6 @@ function tagChip(t) {
   chip.appendChild(h('span', { class: 'ae-chip-name' }, '\\' + t.name));
   if (t.value) chip.appendChild(h('span', null, t.value));
   return chip;
-}
-function stripTagsForPreview(text) {
-  const clean = (text || '').replace(/\{[^}]*\}/g, '').replace(/\\N|\\n/g, ' ').replace(/\s+/g, ' ').trim();
-  return clean || '(empty)';
 }
 
 /* ---------- Script Info tab ------------------------------------------- */
