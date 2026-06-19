@@ -4,3 +4,9 @@ dist/
 .vscode-test/
 _temp/
 .superpowers/
+
+# --- Sample/test subtitle files (never commit .ass content) -----------------
+*.ass
+
+# --- Throwaway one-shot patch scripts ---------------------------------------
+/.fix*.cjs
