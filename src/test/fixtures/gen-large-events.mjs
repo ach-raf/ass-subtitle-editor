@@ -1,6 +1,7 @@
 // Generate a synthetic .ass with N dialogue events for manual scale testing.
 // Usage: node src/test/fixtures/gen-large-events.mjs 71234 > _temp/large.ass
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 
 const n = Number(process.argv[2] ?? 71234);
 const out = process.argv[3] ?? '_temp/large.ass';
@@ -30,6 +31,7 @@ for (let i = 0; i < n; i++) {
   const style = i % 7 === 0 ? 'Title' : 'Default';
   lines.push(`Dialogue: 0,${start},${end},${style},,0,0,0,,{\\fad(200,200)}Line ${i} — the quick brown fox jumps over the lazy dog.`);
 }
+mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, lines.join('\n') + '\n', 'utf8');
 console.log(`Wrote ${n} events to ${out}`);
 

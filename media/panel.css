@@ -186,13 +186,34 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
   letter-spacing: 0.02em;
 }
 
-/* Scroll region */
+/* Scroll region. Always a flex column so its single .ae-stack child can
+   participate in min-height:0 height-bounding (required by the events
+   virtualizer's nested scroller). overflow-y:auto still scrolls the page for
+   Styles/Script Info when their stack content exceeds the viewport. */
 .ae-scroll {
   flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
   padding: var(--ae-3) var(--ae-4) var(--ae-6);
 }
 .ae-stack { display: flex; flex-direction: column; gap: var(--ae-3); }
+/* Direct child of .ae-scroll: claim the flex track and allow the events
+   branch to bound its nested scroller's height (min-height:0 cascade). For
+   Styles/Script Info the stack still grows to content and .ae-scroll scrolls. */
+.ae-scroll > .ae-stack { flex: 1 1 auto; min-height: 0; }
+
+/* Events tab: the page scroller becomes a non-scrolling flex host and the
+   virtualizer's own container (.ae-events-scroll) is the only thing that
+   scrolls. overflow-y:auto is REQUIRED — with the default `visible`, real
+   wheel/trackpad input moves the ancestor instead, so observeElementOffset
+   never fires and the list appears frozen. position:relative is the
+   virtualizer's translate-anchor. flex:1 + min-height:0 let it claim all
+   remaining viewport below the toolbar (replaces the old JS sizer). */
+.ae-scroll:has(.ae-stack--events) { overflow: hidden; padding-bottom: var(--ae-3); }
+.ae-stack--events { flex: 1 1 auto; min-height: 0; gap: var(--ae-2); }
+.ae-events-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; position: relative; }
 
 /* ---------- Buttons ---------------------------------------------------- */
 .ae-btn {
@@ -1073,3 +1094,40 @@ body[data-vscode-theme-kind="light"] .ae-card-head {
 /* Field labels a touch brighter for hierarchy */
 .ae-field > label { color: var(--ae-muted); }
 .ae-card-title:focus { box-shadow: 0 0 0 3px oklch(0.7 0.15 250 / 0.22); }
+
+/* =========================================================================
+   STATIC UI (no hover effects, no motion) + clean select caret
+   ========================================================================= */
+/* Kill every transition so nothing animates. (Spinner keeps its keyframe.) */
+* { transition: none !important; }
+/* Remove the primary-button shimmer sweep. */
+.ae-btn--primary::before, .ae-btn--accent::before { content: none; }
+
+/* Hover must not change appearance — force the resting state on hover. */
+.ae-tab:hover { background: transparent; color: var(--ae-muted); }
+.ae-tab[aria-selected="true"]:hover { background: var(--ae-accent-soft); color: var(--ae-fg); }
+.ae-card:hover, .ae-event:hover { transform: none; border-color: var(--edge); box-shadow: var(--shadow-medium); }
+.ae-event-head:hover { background: transparent; }
+.ae-btn:hover { transform: none; background: var(--ae-btn-2-bg); box-shadow: var(--shadow-small); }
+.ae-btn--primary:hover, .ae-btn--accent:hover { transform: none; background: var(--ae-btn-bg); box-shadow: var(--shadow-small), 0 0 0 1px oklch(0.7 0.15 250 / 0.15); }
+.ae-icon-btn:hover { transform: none; background: var(--depth-bg-elevated); color: var(--ae-muted); box-shadow: var(--shadow-small); }
+.ae-icon-btn--danger:hover { color: var(--ae-muted); border-color: var(--edge); }
+.ae-input:hover, .ae-select:hover, .ae-textarea:hover { background: var(--depth-bg-elevated); border-color: var(--edge); }
+.ae-toggle:hover { transform: none; background: var(--depth-bg-elevated); color: var(--ae-muted); border-color: var(--edge); box-shadow: var(--shadow-small); }
+.ae-align-btn:hover { transform: none; background: var(--depth-bg-elevated); color: var(--ae-muted); box-shadow: var(--shadow-small); }
+.ae-card-title:hover { background: transparent; }
+/* Pressed/active is static too. */
+.ae-btn:active, .ae-icon-btn:active, .ae-toggle:active, .ae-align-btn:active { transform: none; box-shadow: var(--shadow-small); }
+
+/* Single, clean SVG caret — replaces the fragile dual-gradient chevron and
+   forces the native OS arrow hidden on every engine (the source of the
+   doubled-arrow glitch in the webview). */
+.ae-select {
+  -webkit-appearance: none; appearance: none; -moz-appearance: none;
+  padding-right: 30px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238a93a8' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-position: right 10px center;
+  background-size: 14px 14px;
+  background-repeat: no-repeat;
+}
+.ae-select::-ms-expand { display: none; }

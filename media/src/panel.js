@@ -42,9 +42,6 @@ const pendingDetail = new Set();        // lines already requested (coalesce)
 let filteredIndices = null;             // number[] into roster; null = all
 let virtualList = null;                 // createVirtualList() handle
 let scrollEl = null;                    // the events scroll container
-let headerEl = null;                    // header node (for events viewport sizing)
-let toolbarEl = null;                   // toolbar node (for events viewport sizing)
-let eventsSizer = null;                 // current resize listener for .ae-events-scroll
 
 let focusStyleIndex = null;         // set on add/duplicate so the new card is
                                     // scrolled into view + name focused after
@@ -158,13 +155,29 @@ window.addEventListener('message', (e) => {
       pendingDetail.delete(msg.detail.line);
       if (virtualList) virtualList.rerender(); // fill the expanded body
       break;
-    case 'eventPatched':
+    case 'eventPatched': {
       patchRosterEntry(roster, msg.line, msg.roster);
-      detailCache.set(msg.line, msg.detail);
-      if (eventsFilter.trim()) filteredIndices = filterRosterIndices(roster, eventsFilter);
-      if (virtualList) virtualList.rerender();
+      // The host omits `tags` when a non-Text field was patched (they can't
+      // have changed) — preserve the previously-cached chips in that case.
+      const prevDetail = detailCache.get(msg.line);
+      const merged = (msg.detail.tags != null)
+        ? msg.detail
+        : { ...msg.detail, tags: prevDetail?.tags ?? [] };
+      detailCache.set(msg.line, merged);
+      if (eventsFilter.trim()) {
+        // A patch can change a row's filter membership (e.g. editing Text to
+        // match/stop-matching the query) → recompute the index window and have
+        // the virtualizer re-derive its count. rerender() alone would keep the
+        // stale count and the row could vanish/appear out of window.
+        filteredIndices = filterRosterIndices(roster, eventsFilter);
+        if (virtualList) virtualList.setCount();
+      } else if (virtualList) {
+        // No filter: count is unchanged, just refresh the patched row's DOM.
+        virtualList.rerender();
+      }
       updateEventsMeta();
       break;
+    }
   }
 });
 
@@ -181,10 +194,6 @@ function render() {
   root.replaceChildren(appShell());
   const next = document.querySelector('.ae-scroll');
   if (next) next.scrollTop = top;
-  // Now that header/toolbar are attached they report real offsetHeight; re-size
-  // the events viewport (no-op off the events tab) so the virtualizer sees the
-  // correct bounded height on this paint.
-  if (eventsSizer) eventsSizer();
   // A just-added/duplicated style should surface itself, not land out of view.
   // Re-apply on every render while the intent is set (the host can fire the
   // model more than once per edit); the intent is cleared by the first real
@@ -212,13 +221,9 @@ function focusStyleCard(index) {
 }
 
 function appShell() {
-  const hd = header();
-  const tb = toolbar();
-  headerEl = hd;
-  toolbarEl = tb;
   return h('div', { class: 'ae-app' },
-    hd,
-    tb,
+    header(),
+    toolbar(),
     h('div', { class: 'ae-scroll' }, h('div', { class: 'ae-stack' }, content())),
   );
 }
@@ -481,22 +486,12 @@ function fieldWith(label, control) {
 
 /* ---------- Events tab (virtualized) ---------------------------------- */
 function eventsContent() {
-  const wrap = h('div', { class: 'ae-stack' });
-  // The virtualizer needs a scroll container with a BOUNDED height (its
-  // viewport). .ae-scroll is the page scroller (overflow-y:auto, flex:1 of the
-  // 100vh app); a nested auto-div would grow to content and the virtualizer
-  // would see an unbounded viewport and render every row. Bound it explicitly
-  // to the remaining viewport below header+toolbar+padding, and keep it in sync
-  // if the window resizes.
+  // The events wrapper is a bounded flex column (`.ae-stack--events`); the
+  // virtualizer's `.ae-events-scroll` is its only flex child that grows
+  // (flex:1; min-height:0; overflow-y:auto — see panel.css). No JS sizing:
+  // the layout is pure CSS, so it stays correct on toolbar wrap / resize.
+  const wrap = h('div', { class: 'ae-stack ae-stack--events' });
   const scroller = h('div', { class: 'ae-events-scroll' });
-  const sizeScroll = () => {
-    const reserved = (headerEl?.offsetHeight || 0) + (toolbarEl?.offsetHeight || 0) + 96;
-    scroller.style.height = Math.max(160, window.innerHeight - reserved) + 'px';
-  };
-  sizeScroll();
-  if (eventsSizer) window.removeEventListener('resize', eventsSizer);
-  eventsSizer = sizeScroll;
-  window.addEventListener('resize', eventsSizer);
   scrollEl = scroller;
   const progress = h('div', { class: 'ae-events-progress', id: 'ae-events-progress' }, 'Loading events…');
   wrap.appendChild(progress);
@@ -639,12 +634,17 @@ function eventStyleSelect(detail) {
   const sel = h('select', { class: 'ae-select' });
   model.styles.rows.forEach(s => sel.appendChild(h('option', { value: s.fields.Name }, s.fields.Name || '(unnamed)')));
   sel.value = detail.fields.Style || '';
-  sel.addEventListener('change', () => postEdit('events', lineOfSelect(sel), eventFieldIndex('Style'), sel.value));
+  sel.addEventListener('change', () => {
+    const line = lineOfSelect(sel);
+    if (line == null) return; // card not found — never edit row 0 by accident
+    postEdit('events', line, eventFieldIndex('Style'), sel.value);
+  });
   return sel;
 }
 function lineOfSelect(sel) {
   const card = sel.closest('.ae-event');
-  return card ? Number(card.getAttribute('data-line')) : 0;
+  if (!card || !card.hasAttribute('data-line')) return null;
+  return Number(card.getAttribute('data-line'));
 }
 
 // All events share model.events.format; eventFieldIndex looks it up by name.

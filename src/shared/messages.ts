@@ -9,7 +9,9 @@ export interface StyleRowView {
 export interface EventDetailView {
   line: number;
   fields: Record<string, string>;
-  tags: DecodedTag[];
+  /** Decoded override tags. Omitted on incremental patches where the Text
+   *  field was not edited (the webview reuses its cached tags in that case). */
+  tags?: DecodedTag[];
 }
 
 /** Host → Webview. */

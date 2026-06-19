@@ -4,6 +4,7 @@ import { AssDocument } from './assDocument';
 import { computeFieldEdit, computeScriptInfoEdit, rowStillValid } from './assEdit';
 import { decodeDialogueTags } from './assTags';
 import { buildRosterRow, chunkRoster } from './shared/roster';
+import type { EventDetailView } from './shared/messages';
 import type { AssModel, SectionRow } from './types';
 
 const ROSTER_CHUNK_SIZE = 2000;
@@ -91,13 +92,15 @@ export class AssPanel {
     const roster = model.events.rows.map(buildRosterRow);
     const total = roster.length;
     this.panel.webview.postMessage({ type: 'eventsRosterBegin', totalCount: total });
+    let offset = 0;
     for (const page of chunkRoster(roster, ROSTER_CHUNK_SIZE)) {
       this.panel.webview.postMessage({
         type: 'eventsRosterChunk',
-        startIndex: 0, // webview appends in order; index unused but kept for protocol clarity
+        startIndex: offset, // index of `rows[0]` within the full roster
         rows: page,
         totalCount: total,
       });
+      offset += page.length;
     }
     this.panel.webview.postMessage({ type: 'eventsRosterEnd', totalCount: total });
   }
@@ -118,19 +121,21 @@ export class AssPanel {
     }
   }
 
-  /** After a panel-initiated event edit: patch one row, not the whole roster. */
-  private sendEventPatch(line: number): void {
+  /** After a panel-initiated event edit: patch one row, not the whole roster.
+   *  Tag chips can only change when the Text field was edited — for any other
+   *  field skip the (relatively costly) decode and let the webview reuse the
+   *  tags already in its detail cache (tags omitted from the message). */
+  private sendEventPatch(line: number, editedField?: string): void {
     const row = this.rowsByLine.get(line);
     if (!row) return;
+    const fields = { ...row.fields };
+    const detail: EventDetailView = { line, fields };
+    if (editedField === 'Text') detail.tags = decodeDialogueTags(row.fields.Text ?? '');
     this.panel.webview.postMessage({
       type: 'eventPatched',
       line,
       roster: buildRosterRow(row),
-      detail: {
-        line,
-        fields: { ...row.fields },
-        tags: decodeDialogueTags(row.fields.Text ?? ''),
-      },
+      detail,
     });
   }
 
@@ -237,7 +242,7 @@ export class AssPanel {
     this.reindex(this.doc.model);
     this.lastSyncedVersion = this.doc.doc.version;
     this.sendModel();
-    this.sendEventPatch(msg.line);
+    this.sendEventPatch(msg.line, row.format[msg.fieldIndex]);
   }
 
   /** Script Info / Style field edit: model changed, line numbers did not. */
