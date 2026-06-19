@@ -3,9 +3,12 @@ import { randomBytes } from 'node:crypto';
 import { AssDocument } from './assDocument';
 import { computeFieldEdit, computeScriptInfoEdit, rowStillValid } from './assEdit';
 import { decodeDialogueTags } from './assTags';
+import { buildRosterRow, chunkRoster } from './shared/roster';
 import type { AssModel, SectionRow } from './types';
 
-function stripRow(r: SectionRow) {
+const ROSTER_CHUNK_SIZE = 2000;
+
+function stripStyleRow(r: SectionRow) {
   return { kind: r.kind, line: r.line, ok: r.ok, format: r.format, fields: r.fields };
 }
 
@@ -13,8 +16,10 @@ export class AssPanel {
   private panel: vscode.WebviewPanel;
   private doc: AssDocument;
   private rowsByLine = new Map<number, SectionRow>();
+  /** document.version captured after the panel last synced its own edit. Used to
+   *  tell our own WorkspaceEdit apart from an external text-editor change. */
+  private lastSyncedVersion = 0;
   private _onDidDispose = new vscode.EventEmitter<void>();
-  /** Fires when the underlying webview panel is disposed. */
   readonly onDidDispose = this._onDidDispose.event;
 
   constructor(doc: AssDocument, context: vscode.ExtensionContext) {
@@ -33,32 +38,35 @@ export class AssPanel {
       },
     );
     this.panel.webview.html = this.html(this.panel.webview, context);
-    this.doc.onModelChange = (m) => this.send(m);
+    this.doc.onChanged = () => this.onExternalChange();
     this.panel.webview.onDidReceiveMessage((msg) => this.onMessage(msg));
     this.panel.onDidDispose(() => {
-      this.doc.onModelChange = () => {};
+      this.doc.onChanged = () => {};
       this._onDidDispose.fire();
     });
-    this.send(doc.model);
+    this.initialSend();
   }
 
-  /** Reveal the panel in its column. */
   reveal(): void {
     this.panel.reveal(this.panel.viewColumn ?? vscode.ViewColumn.Beside, false);
   }
 
-  private send(model: AssModel): void {
-    this.reindex(model);
-    const view = {
-      bom: model.bom,
-      scriptInfo: model.scriptInfo.map((e) => ({ key: e.key, value: e.value, line: e.line })),
-      styles: { format: model.styles.format, rows: model.styles.rows.map(stripRow) },
-      events: {
-        format: model.events.format,
-        rows: model.events.rows.map((r) => ({ ...stripRow(r), tags: decodeDialogueTags(r.fields.Text ?? '') })),
-      },
-    };
-    this.panel.webview.postMessage({ type: 'model', model: view });
+  /** First paint: small model + full roster (chunked). */
+  private initialSend(): void {
+    this.reindex(this.doc.model);
+    this.lastSyncedVersion = this.doc.doc.version;
+    this.sendModel();
+    this.sendRoster(this.doc.model);
+  }
+
+  /** External (non-panel) text change: version differs → full resync. */
+  private onExternalChange(): void {
+    if (this.doc.doc.version === this.lastSyncedVersion) return; // our own edit
+    this.doc.refresh();
+    this.reindex(this.doc.model);
+    this.lastSyncedVersion = this.doc.doc.version;
+    this.sendModel();
+    this.sendRoster(this.doc.model);
   }
 
   private reindex(model: AssModel): void {
@@ -66,23 +74,79 @@ export class AssPanel {
     for (const r of [...model.styles.rows, ...model.events.rows]) this.rowsByLine.set(r.line, r);
   }
 
-  private async onMessage(msg: { type: string; section?: string; line?: number; fieldIndex?: number; value?: string }): Promise<void> {
-    // A single malformed message must never wedge the panel: any failure
-    // logs a warning and refreshes the model (re-renders the webview) rather
-    // than letting the exception escape the message handler.
+  /** Small model: Script Info + full Styles + the Events header (format + count). */
+  private sendModel(): void {
+    const m = this.doc.model;
+    this.panel.webview.postMessage({
+      type: 'model',
+      bom: m.bom,
+      scriptInfo: m.scriptInfo.map((e) => ({ key: e.key, value: e.value, line: e.line })),
+      styles: { format: m.styles.format, rows: m.styles.rows.map(stripStyleRow) },
+      events: { format: m.events.format, count: m.events.rows.length },
+    });
+  }
+
+  /** Full events roster, sent in pages so the webview paints progressively. */
+  private sendRoster(model: AssModel): void {
+    const roster = model.events.rows.map(buildRosterRow);
+    const total = roster.length;
+    this.panel.webview.postMessage({ type: 'eventsRosterBegin', totalCount: total });
+    for (const page of chunkRoster(roster, ROSTER_CHUNK_SIZE)) {
+      this.panel.webview.postMessage({
+        type: 'eventsRosterChunk',
+        startIndex: 0, // webview appends in order; index unused but kept for protocol clarity
+        rows: page,
+        totalCount: total,
+      });
+    }
+    this.panel.webview.postMessage({ type: 'eventsRosterEnd', totalCount: total });
+  }
+
+  /** Respond to expanded-row detail requests (decoded tags included). */
+  private sendDetails(lines: number[]): void {
+    for (const line of lines) {
+      const row = this.rowsByLine.get(line);
+      if (!row) continue;
+      this.panel.webview.postMessage({
+        type: 'eventDetail',
+        detail: {
+          line,
+          fields: { ...row.fields },
+          tags: decodeDialogueTags(row.fields.Text ?? ''),
+        },
+      });
+    }
+  }
+
+  /** After a panel-initiated event edit: patch one row, not the whole roster. */
+  private sendEventPatch(line: number): void {
+    const row = this.rowsByLine.get(line);
+    if (!row) return;
+    this.panel.webview.postMessage({
+      type: 'eventPatched',
+      line,
+      roster: buildRosterRow(row),
+      detail: {
+        line,
+        fields: { ...row.fields },
+        tags: decodeDialogueTags(row.fields.Text ?? ''),
+      },
+    });
+  }
+
+  private async onMessage(msg: { type: string; section?: string; line?: number; fieldIndex?: number; value?: string; lines?: number[] }): Promise<void> {
     try {
-      if (msg.type === 'edit') await this.onEdit(msg);
+      if (msg.type === 'edit') return await this.onEdit(msg);
+      if (msg.type === 'getEventDetail' && Array.isArray(msg.lines)) return this.sendDetails(msg.lines);
       if (msg.type === 'addRow' && msg.section === 'styles') return this.insertStyle(msg.line);
       if (msg.type === 'duplicateRow' && msg.section === 'styles' && msg.line != null) return this.duplicateStyle(this.clampLine(msg.line));
       if (msg.type === 'deleteRow' && msg.section === 'styles' && msg.line != null) return this.deleteStyle(this.clampLine(msg.line));
     } catch (err) {
       console.warn('AssPanel onMessage error:', err);
-      this.doc.refresh();
+      this.onExternalChange(); // recover by full resync
     }
   }
 
-  // Clamp an inbound line number to a valid `lineAt` index so a stale message
-  // (e.g. a row that was just deleted) cannot throw out of range.
   private clampLine(line: number): number {
     if (!Number.isFinite(line) || line < 0) return 0;
     return Math.min(line, this.doc.doc.lineCount - 1);
@@ -105,13 +169,22 @@ export class AssPanel {
     const ws = new vscode.WorkspaceEdit();
     ws.delete(this.doc.doc.uri, this.doc.doc.lineAt(line).rangeIncludingLineBreak);
     await vscode.workspace.applyEdit(ws);
-    this.doc.refresh(); // Critical #1: collapse stale-window immediately
+    this.afterStructuralChange();
   }
   private async insertLine(line: number, text: string): Promise<void> {
     const ws = new vscode.WorkspaceEdit();
     ws.insert(this.doc.doc.uri, new vscode.Position(line, 0), text + '\n');
     await vscode.workspace.applyEdit(ws);
-    this.doc.refresh(); // Critical #1: collapse stale-window immediately
+    this.afterStructuralChange();
+  }
+
+  /** Style add/dup/delete shifts event line numbers → resync model + roster. */
+  private afterStructuralChange(): void {
+    this.doc.refresh();
+    this.reindex(this.doc.model);
+    this.lastSyncedVersion = this.doc.doc.version;
+    this.sendModel();
+    this.sendRoster(this.doc.model);
   }
 
   private async onEdit(msg: { section?: string; line?: number; fieldIndex?: number; value?: string }): Promise<void> {
@@ -119,36 +192,60 @@ export class AssPanel {
       if (msg.line == null) return;
       const entry = this.doc.model.scriptInfo.find((e) => e.line === msg.line);
       if (!entry) return;
-      // Critical #2: stale-guard for Script Info edits — mirror the section-row
-      // discipline. If the live value slice no longer matches the stored range,
-      // the parse is stale; refresh and abort instead of mis-targeting.
       const ln = this.clampLine(msg.line);
       const live = this.doc.doc.lineAt(ln).text;
       if (live.slice(entry.valueRange.startChar, entry.valueRange.endChar) !== entry.value) {
-        this.doc.refresh();
+        this.onExternalChange();
         return;
       }
       const e = computeScriptInfoEdit(entry, msg.value ?? '');
       const ws = new vscode.WorkspaceEdit();
       ws.replace(this.doc.doc.uri, new vscode.Range(e.line, e.startChar, e.line, e.endChar), e.newContent);
       await vscode.workspace.applyEdit(ws);
-      this.doc.refresh(); // Critical #1: collapse stale-window immediately
+      this.afterFieldEdit();
       return;
     }
+    if (msg.section === 'styles') {
+      if (msg.line == null || msg.fieldIndex == null) return;
+      const ln = this.clampLine(msg.line);
+      const row = this.rowsByLine.get(msg.line);
+      if (!row) return;
+      const liveLine = this.doc.doc.lineAt(ln).text;
+      if (!rowStillValid(liveLine, row)) { this.onExternalChange(); return; }
+      const edit = computeFieldEdit(row, msg.fieldIndex, msg.value ?? '');
+      if (!edit) return;
+      const ws = new vscode.WorkspaceEdit();
+      ws.replace(this.doc.doc.uri, new vscode.Range(edit.line, edit.startChar, edit.line, edit.endChar), edit.newContent);
+      await vscode.workspace.applyEdit(ws);
+      this.afterFieldEdit(); // style field edits don't shift event lines
+      return;
+    }
+    // events
     if (msg.line == null || msg.fieldIndex == null) return;
     const ln = this.clampLine(msg.line);
     const row = this.rowsByLine.get(msg.line);
     if (!row) return;
-    // Stale-parse guard: confirm the live line still matches (kept as defense
-    // for external text-edit races; refresh() above covers our own edits).
     const liveLine = this.doc.doc.lineAt(ln).text;
-    if (!rowStillValid(liveLine, row)) { this.doc.refresh(); return; }
+    if (!rowStillValid(liveLine, row)) { this.onExternalChange(); return; }
     const edit = computeFieldEdit(row, msg.fieldIndex, msg.value ?? '');
     if (!edit) return;
     const ws = new vscode.WorkspaceEdit();
     ws.replace(this.doc.doc.uri, new vscode.Range(edit.line, edit.startChar, edit.line, edit.endChar), edit.newContent);
     await vscode.workspace.applyEdit(ws);
-    this.doc.refresh(); // Critical #1: collapse stale-window immediately
+    // Event field edits never change line count → sync this one row only.
+    this.doc.refresh();
+    this.reindex(this.doc.model);
+    this.lastSyncedVersion = this.doc.doc.version;
+    this.sendModel();
+    this.sendEventPatch(msg.line);
+  }
+
+  /** Script Info / Style field edit: model changed, line numbers did not. */
+  private afterFieldEdit(): void {
+    this.doc.refresh();
+    this.reindex(this.doc.model);
+    this.lastSyncedVersion = this.doc.doc.version;
+    this.sendModel();
   }
 
   private html(webview: vscode.Webview, context: vscode.ExtensionContext): string {
@@ -171,7 +268,5 @@ export class AssPanel {
 }
 
 function getNonce(): string {
-  // Use a CSPRNG per VS Code webview convention; Math.random is not suitable
-  // for the Content-Security-Policy nonce.
   return randomBytes(16).toString('hex');
 }

@@ -7,7 +7,9 @@ export class AssDocument {
   private _model: AssModel;
   private _disposables: vscode.Disposable[] = [];
   private _timer: NodeJS.Timeout | undefined;
-  onModelChange: (m: AssModel) => void = () => {};
+  /** Fires (debounced) when the underlying text document changes. The panel
+   *  decides whether to treat it as its own edit (already synced) or external. */
+  onChanged: () => void = () => {};
 
   constructor(doc: vscode.TextDocument) {
     this.doc = doc;
@@ -22,14 +24,16 @@ export class AssDocument {
     return this._model;
   }
 
-  refresh(): void {
+  /** Re-parse the file from the live TextDocument. Silent — does not notify.
+   *  Callers (the panel) decide what to send to the webview afterwards. */
+  refresh(): AssModel {
     this._model = parseAss(this.doc.getText());
-    this.onModelChange(this._model);
+    return this._model;
   }
 
   private schedule(): void {
     if (this._timer) clearTimeout(this._timer);
-    this._timer = setTimeout(() => this.refresh(), 200);
+    this._timer = setTimeout(() => this.onChanged(), 200);
   }
 
   dispose(): void {
