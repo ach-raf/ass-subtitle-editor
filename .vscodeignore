@@ -1,11 +1,15 @@
 # --- Not shipped: sources, tests, dev tooling -----------------------------
 src/**
+media/src/**
 test/**
 docs/**
 _temp/**
 .vscode/**
 .vscode-test/**
 .github/**
+.claude/**
+.design-preview/**
+node_modules/**
 
 # --- Build config & repo meta ---------------------------------------------
 esbuild.mjs

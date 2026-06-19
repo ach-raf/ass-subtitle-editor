@@ -3,8 +3,8 @@ import * as esbuild from 'esbuild';
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
 
-/** @type {import('esbuild').BuildOptions} */
-const options = {
+/** Host: Node CJS bundle (external vscode). */
+const hostOptions = {
   entryPoints: ['src/extension.ts'],
   bundle: true,
   outfile: 'dist/extension.js',
@@ -17,10 +17,25 @@ const options = {
   logLevel: 'info',
 };
 
+/** Webview: browser IIFE bundle served to the webview under the CSP nonce. */
+const webviewOptions = {
+  entryPoints: ['media/src/panel.js'],
+  bundle: true,
+  outfile: 'dist/panel.js',
+  format: 'iife',
+  platform: 'browser',
+  target: ['chrome110'], // VS Code's bundled Chromium
+  sourcemap: production ? false : 'inline',
+  minify: production,
+  logLevel: 'info',
+};
+
 if (watch) {
-  const ctx = await esbuild.context(options);
-  await ctx.watch();
-  console.log('esbuild watching…');
+  const hostCtx = await esbuild.context(hostOptions);
+  const webCtx = await esbuild.context(webviewOptions);
+  await Promise.all([hostCtx.watch(), webCtx.watch()]);
+  console.log('esbuild watching (host + webview)…');
 } else {
-  await esbuild.build(options);
+  await esbuild.build(hostOptions);
+  await esbuild.build(webviewOptions);
 }

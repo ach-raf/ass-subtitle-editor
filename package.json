@@ -76,6 +76,7 @@
     "package": "npx --yes @vscode/vsce package --no-dependencies"
   },
   "dependencies": {
+    "@tanstack/virtual-core": "^3.17.1",
     "ass-compiler": "^0.1.16"
   },
   "devDependencies": {

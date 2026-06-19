@@ -26,7 +26,10 @@ export class AssPanel {
       {
         enableScripts: true,
         retainContextWhenHidden: true,
-        localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')],
+        localResourceRoots: [
+          vscode.Uri.joinPath(context.extensionUri, 'media'),
+          vscode.Uri.joinPath(context.extensionUri, 'dist'),
+        ],
       },
     );
     this.panel.webview.html = this.html(this.panel.webview, context);
@@ -150,7 +153,7 @@ export class AssPanel {
 
   private html(webview: vscode.Webview, context: vscode.ExtensionContext): string {
     const nonce = getNonce();
-    const js = webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', 'panel.js'));
+    const js = webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'dist', 'panel.js'));
     const css = webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', 'panel.css'));
     return /* html */ `<!DOCTYPE html>
 <html>
