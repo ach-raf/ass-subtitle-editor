@@ -1,0 +1,29 @@
+# --- Not shipped: sources, tests, dev tooling -----------------------------
+src/**
+test/**
+docs/**
+_temp/**
+.vscode/**
+.vscode-test/**
+.github/**
+
+# --- Build config & repo meta ---------------------------------------------
+esbuild.mjs
+tsconfig.json
+.mocharc.json
+.gitignore
+.gitattributes
+.git/**
+package-lock.json
+*.vsix
+
+# --- TypeScript sources + maps (we ship compiled JS in dist/) -------------
+**/*.ts
+**/*.map
+
+# --- OS / editor cruft ----------------------------------------------------
+**/.DS_Store
+**/Thumbs.db
+
+# --- Source icon assets (kept in git; the shipped icon is media/icon.png) -
+ass_editor_icon_*.png

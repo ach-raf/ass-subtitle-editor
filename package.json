@@ -3,27 +3,67 @@
   "displayName": "ASS Subtitle Editor",
   "description": "Decode and edit Advanced SubStation Alpha (.ass) subtitle files.",
   "version": "0.0.1",
+  "license": "MIT",
   "publisher": "local",
-  "engines": { "vscode": "^1.85.0" },
-  "categories": ["Other"],
+  "icon": "media/icon.png",
+  "homepage": "https://github.com/ach-raf/ass-subtitle-editor#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ach-raf/ass-subtitle-editor"
+  },
+  "bugs": {
+    "url": "https://github.com/ach-raf/ass-subtitle-editor/issues"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
   "main": "./dist/extension.js",
-  "activationEvents": ["onLanguage:ass"],
+  "activationEvents": [
+    "onLanguage:ass"
+  ],
   "contributes": {
     "languages": [
-      { "id": "ass", "aliases": ["Advanced SubStation Alpha", "ass"], "extensions": [".ass"] }
+      {
+        "id": "ass",
+        "aliases": [
+          "Advanced SubStation Alpha",
+          "ass"
+        ],
+        "extensions": [
+          ".ass"
+        ]
+      }
     ],
     "grammars": [
-      { "language": "ass", "scopeName": "source.ass", "path": "./syntaxes/ass.tmLanguage.json" }
+      {
+        "language": "ass",
+        "scopeName": "source.ass",
+        "path": "./syntaxes/ass.tmLanguage.json"
+      }
     ],
     "commands": [
-      { "command": "ass.openStyleEditor", "title": "ASS: Open Style Editor", "category": "ASS" }
+      {
+        "command": "ass.openStyleEditor",
+        "title": "ASS: Open Style Editor",
+        "category": "ASS"
+      }
     ],
     "menus": {
       "commandPalette": [
-        { "command": "ass.openStyleEditor", "when": "resourceLangId == ass" }
+        {
+          "command": "ass.openStyleEditor",
+          "when": "resourceLangId == ass"
+        }
       ],
       "editor/title": [
-        { "command": "ass.openStyleEditor", "when": "resourceLangId == ass", "group": "navigation" }
+        {
+          "command": "ass.openStyleEditor",
+          "when": "resourceLangId == ass",
+          "group": "navigation"
+        }
       ]
     }
   },
@@ -32,9 +72,12 @@
     "compile": "npm run check-types && node esbuild.mjs --production",
     "watch": "node esbuild.mjs --watch",
     "test": "mocha",
-    "package": "vsce package --no-dependencies"
+    "vscode:prepublish": "npm run compile",
+    "package": "npx --yes @vscode/vsce package --no-dependencies"
   },
-  "dependencies": { "ass-compiler": "^0.1.16" },
+  "dependencies": {
+    "ass-compiler": "^0.1.16"
+  },
   "devDependencies": {
     "@types/mocha": "^10.0.6",
     "@types/node": "^20.11.0",

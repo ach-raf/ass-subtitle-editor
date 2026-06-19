@@ -1,0 +1,45 @@
+name: Release
+
+# Builds the .vsix on every v* tag push and auto-attaches it to a GitHub
+# Release (with generated release notes) so you never package by hand.
+# A manual `workflow_dispatch` run builds the .vsix as a CI smoke test but
+# skips release creation (it only ships from a real tag).
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and package .vsix
+        # `vscode:prepublish` runs compile (tsc + esbuild) before vsce packs.
+        run: npm run package
+
+      - name: Create GitHub Release and upload .vsix
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --generate-notes \
+            --title "$GITHUB_REF_NAME" \
+            ass-style-editor-*.vsix
