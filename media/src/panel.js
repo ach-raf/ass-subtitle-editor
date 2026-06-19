@@ -14,6 +14,7 @@
 
 import { createVirtualList } from './virtualList.js';
 import { filterRosterIndices, patchRosterEntry } from '../../src/shared/roster.ts';
+import { styleToCss } from '../../src/shared/render.ts';
 
 // Standalone-safe: in the real webview acquireVsCodeApi() exists; in the
 // preview harness it is shimmed so this same file runs unmodified.
@@ -32,6 +33,15 @@ const collapsedStyles = new Set(); // keyed by style LINE (not name) so two
 const openEvents = new Set();       // keyed by event line (stable: events
                                     // can't be added/deleted from the panel)
 let eventsFilter = '';
+
+/* ---------- preview mode (rendered styled text) ----------------------- */
+let previewMode = false;            // global: render styled text for every event
+const previewOverride = new Map();  // line -> boolean; explicit per-event mode
+const PREVIEW_FONT_ROW = 15;        // collapsed-row base px (preview scale root)
+const PREVIEW_FONT_BODY = 28;       // expanded-body base px
+function effectivePreview(line) {
+  return previewOverride.has(line) ? !!previewOverride.get(line) : previewMode;
+}
 
 /* ---------- events virtualization state -------------------------------- */
 const roster = [];                      // RosterRow[] (filled from host chunks)
@@ -98,6 +108,7 @@ const ICONS = {
   warning: '<path d="M12 3 2 20h20L12 3z"/><path d="M12 10v5M12 18v.5"/>',
   unfold: '<path d="m7 9 5-5 5 5M7 15l5 5 5-5"/>',
   fold: '<path d="m7 4 5 5 5-5M7 20l5-5 5 5"/>',
+  eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
 };
 function icon(name) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -153,16 +164,16 @@ window.addEventListener('message', (e) => {
     case 'eventDetail':
       detailCache.set(msg.detail.line, msg.detail);
       pendingDetail.delete(msg.detail.line);
-      if (virtualList) virtualList.rerender(); // fill the expanded body
+      scheduleRerender(); // fill the expanded body / upgrade a preview row
       break;
     case 'eventPatched': {
       patchRosterEntry(roster, msg.line, msg.roster);
-      // The host omits `tags` when a non-Text field was patched (they can't
-      // have changed) — preserve the previously-cached chips in that case.
+      // The host omits `tags`/`runs` when a non-Text field was patched (they
+      // can't have changed) — preserve the previously-cached values in that case.
       const prevDetail = detailCache.get(msg.line);
       const merged = (msg.detail.tags != null)
         ? msg.detail
-        : { ...msg.detail, tags: prevDetail?.tags ?? [] };
+        : { ...msg.detail, tags: prevDetail?.tags ?? [], runs: prevDetail?.runs, baseFontSize: prevDetail?.baseFontSize };
       detailCache.set(msg.line, merged);
       if (eventsFilter.trim()) {
         // A patch can change a row's filter membership (e.g. editing Text to
@@ -277,6 +288,8 @@ function toolbar() {
     input.addEventListener('input', () => setEventsFilter(input.value));
     return h('div', { class: 'ae-toolbar' },
       h('div', { class: 'ae-search' }, icon('search'), input),
+      h('button', { class: 'ae-icon-btn' + (previewMode ? ' is-on' : ''), title: previewMode ? 'Preview on — showing rendered text' : 'Preview rendered text', 'aria-pressed': String(previewMode),
+        onclick: () => { previewMode = !previewMode; render(); requestVisibleRuns(); } }, icon('eye')),
       h('button', { class: 'ae-icon-btn', title: 'Expand all', onclick: () => { roster.forEach(r => openEvents.add(r.line)); if (virtualList) virtualList.repaint(); } }, icon('unfold')),
       h('button', { class: 'ae-icon-btn', title: 'Collapse all', onclick: () => { openEvents.clear(); if (virtualList) virtualList.repaint(); } }, icon('fold')),
       h('div', { class: 'ae-spacer' }),
@@ -528,7 +541,41 @@ function mountEventsList() {
     estimateSize: () => 56,
     overscan: 8,
   });
+  // In preview mode, newly scrolled-in rows need their runs fetched too — a
+  // debounced scroll listener batches requests for visible preview rows.
+  scrollEl.addEventListener('scroll', onPreviewScroll, { passive: true });
   updateEventsMeta();
+}
+
+let scrollPreviewTimer = null;
+function onPreviewScroll() {
+  if (!previewMode && !previewOverride.size) return;
+  if (scrollPreviewTimer) clearTimeout(scrollPreviewTimer);
+  scrollPreviewTimer = setTimeout(requestVisibleRuns, 150);
+}
+
+/** Coalesce rerenders across a burst of eventDetail arrivals (e.g. when many
+ *  preview rows fetch runs at once) into one rAF, to avoid re-mounting every
+ *  visible row per message. */
+let rerenderQueued = false;
+function scheduleRerender() {
+  if (rerenderQueued || !virtualList) return;
+  rerenderQueued = true;
+  requestAnimationFrame(() => { rerenderQueued = false; if (virtualList) virtualList.rerender(); });
+}
+
+/** Request detail (incl. runs) for every visible preview row we don't already
+ *  have. One batched getEventDetail so the host can answer in a single pass. */
+function requestVisibleRuns() {
+  if (!scrollEl) return;
+  const need = [];
+  scrollEl.querySelectorAll('.ae-event[data-line]').forEach((el) => {
+    const line = Number(el.getAttribute('data-line'));
+    if (effectivePreview(line) && !detailCache.has(line) && !pendingDetail.has(line)) need.push(line);
+  });
+  if (!need.length) return;
+  need.forEach((l) => pendingDetail.add(l));
+  post('getEventDetail', { lines: need });
 }
 
 function mountOrRepaintEvents() {
@@ -577,6 +624,7 @@ function setEventsFilter(q) {
 function eventCard(r) {
   const open = openEvents.has(r.line);
   const detail = detailCache.get(r.line);
+  const showPreview = effectivePreview(r.line);
   const card = h('div', { class: 'ae-event', 'data-open': String(open), 'data-line': String(r.line) });
 
   const head = h('div', { class: 'ae-event-head', role: 'button', tabindex: '0',
@@ -589,13 +637,13 @@ function eventCard(r) {
       h('span', { class: 'ae-event-arrow' }, '→'),
       h('span', { class: 'ae-t' }, r.End || '')),
     h('span', { class: 'ae-event-style-tag' }, r.Style || '—'),
-    h('span', { class: 'ae-event-preview' }, r.preview || '(empty)'),
+    h('span', { class: 'ae-event-preview' }, previewSpan(r, detail, showPreview)),
   );
   card.appendChild(head);
 
-  if (!open) return card; // collapsed rows render from the roster only
+  if (!open) return card; // collapsed rows render from the roster (+ optional preview)
 
-  // Expanded: body needs full detail (Text + decoded tags). Fetch on demand.
+  // Expanded: body needs full detail (Text + decoded tags + runs). Fetch on demand.
   if (!detail) {
     requestDetail(r.line);
     card.appendChild(h('div', { class: 'ae-event-body' }, h('div', { class: 'ae-empty' }, h('span', { class: 'ae-spinner' }), 'Loading…')));
@@ -605,19 +653,90 @@ function eventCard(r) {
   return card;
 }
 
+/** Collapsed-row preview cell: the rendered styled text when runs are cached,
+ *  otherwise the plain roster snippet as a fallback (and a fetch is kicked off
+ *  so the row upgrades to the render once the host replies). */
+function previewSpan(r, detail, showPreview) {
+  if (showPreview && detail && detail.runs && detail.runs.length) {
+    return renderRunsToHtml(detail.runs, detail.baseFontSize, PREVIEW_FONT_ROW);
+  }
+  if (showPreview && (!detail || !detail.runs)) requestDetail(r.line);
+  return h('span', null, r.preview || '(empty)');
+}
+
 function eventBody(line, detail) {
+  const preview = effectivePreview(line);
   const styleSel = eventStyleSelect(detail);
-  const textArea = h('textarea', { class: 'ae-textarea', rows: '2',
-    onchange: function () { postEdit('events', line, eventFieldIndex('Text'), this.value); } });
-  textArea.value = detail.fields.Text || '';
+  const textCell = preview
+    ? renderPreviewBox(detail, PREVIEW_FONT_BODY)
+    : h('textarea', { class: 'ae-textarea', rows: '2',
+        onchange: function () { postEdit('events', line, eventFieldIndex('Text'), this.value); } });
+  if (!preview) textCell.value = detail.fields.Text || '';
   return h('div', { class: 'ae-event-body' },
     h('div', { class: 'ae-event-times-row' },
       fieldWith('Start', eventTimeInput(line, detail, 'Start')),
       fieldWith('End', eventTimeInput(line, detail, 'End')),
       fieldWith('Style', styleSel)),
-    fieldWith('Text', textArea),
+    h('div', { class: 'ae-field' },
+      h('div', { class: 'ae-field-head' },
+        h('label', { class: 'ae-field-label' }, 'Text'),
+        segmentedSwitch(line, preview)),
+      textCell),
     tagChips(detail.tags),
   );
+}
+
+/** Per-event Source/Preview switch. Sets an explicit override; if the chosen
+ *  mode matches the global default, drop the override so the row tracks global. */
+function segmentedSwitch(line, preview) {
+  const btn = (label, val) => h('button', {
+    class: 'ae-seg-btn' + (preview === val ? ' is-on' : ''),
+    'aria-pressed': String(preview === val),
+    onclick: (e) => {
+      e.stopPropagation();
+      if (previewMode === val) previewOverride.delete(line);
+      else previewOverride.set(line, val);
+      if (virtualList) virtualList.rerender();
+    },
+  }, label);
+  return h('div', { class: 'ae-seg', role: 'group', 'aria-label': 'Text view' }, btn('Source', false), btn('Preview', true));
+}
+
+/** Read-only rendered preview that replaces the textarea in Preview mode. */
+function renderPreviewBox(detail, baseFontPx) {
+  const box = h('div', { class: 'ae-preview' });
+  if (detail && detail.runs && detail.runs.length) {
+    box.appendChild(renderRunsToHtml(detail.runs, detail.baseFontSize, baseFontPx));
+  } else {
+    const hasText = (detail?.fields?.Text || '').replace(/\{[^}]*\}/g, '').trim().length > 0;
+    box.appendChild(h('span', { class: 'ae-preview-empty' }, hasText ? 'Rendering…' : '(empty)'));
+  }
+  return box;
+}
+
+/** Build the inline styled runs. ASS px → preview px via baseFontPx/baseFontSize.
+ *  Run text may contain '\n' (from \N); split and insert <br>. */
+function renderRunsToHtml(runs, baseFontSize, baseFontPx) {
+  const scale = baseFontPx / (baseFontSize || 48);
+  const line = h('span', { class: 'ae-preview-line' });
+  let any = false;
+  for (const run of runs) {
+    if (run.isDrawing || !run.text) continue;
+    const css = styleToCss(run.style, scale);
+    const segs = String(run.text).split('\n');
+    for (let i = 0; i < segs.length; i++) {
+      if (i > 0) line.appendChild(h('br'));
+      if (segs[i].length) {
+        const s = h('span', { class: 'ae-preview-run' });
+        Object.assign(s.style, css);
+        s.textContent = segs[i];
+        line.appendChild(s);
+        any = true;
+      }
+    }
+  }
+  if (!any) line.appendChild(h('span', { class: 'ae-preview-empty' }, '(empty)'));
+  return line;
 }
 
 function toggleEvent(line) {

@@ -1,5 +1,6 @@
 import type { DecodedTag } from '../assTags';
 import type { RosterRow } from './roster';
+import type { RenderRun } from './render';
 
 export interface ScriptInfoView { key: string; value: string; line: number; }
 export interface StyleRowView {
@@ -12,6 +13,12 @@ export interface EventDetailView {
   /** Decoded override tags. Omitted on incremental patches where the Text
    *  field was not edited (the webview reuses its cached tags in that case). */
   tags?: DecodedTag[];
+  /** Styled-preview runs. Omitted on non-Text patches (webview reuses cached
+   *  runs — they can't have changed). */
+  runs?: RenderRun[];
+  /** Base style Fontsize (ASS px). The webview scales font / bord / shad / blur
+   *  by `baseFontPx / baseFontSize` to fit the row. */
+  baseFontSize?: number;
 }
 
 /** Host → Webview. */

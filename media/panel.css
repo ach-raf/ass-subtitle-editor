@@ -595,6 +595,43 @@ input[type="number"].ae-input { padding-right: 4px; }
 .ae-chip-name { color: var(--ae-accent); font-weight: 600; }
 .ae-chip-swatch { width: 10px; height: 10px; border-radius: 2px; border: 1px solid var(--ae-swatch-border); }
 
+/* ---------- Text preview (rendered styled runs) ----------------------- */
+/* Collapsed rows reuse .ae-event-preview (ellipsis). In the body the render
+   sits in a surfaced box that reads both light and dark subtitle colors. */
+.ae-preview {
+  min-height: 46px;
+  padding: 10px 12px;
+  border: 1px solid var(--ae-border);
+  border-radius: var(--ae-r-sm);
+  background: var(--ae-input-bg);
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
+.ae-preview-line { display: inline; line-height: 1.4; white-space: nowrap; }
+.ae-preview-run { display: inline; white-space: pre; }
+.ae-preview-empty { color: var(--ae-muted); font-style: italic; }
+
+/* Text field head: label + Source/Preview switch. */
+.ae-field-head { display: flex; align-items: center; gap: var(--ae-2); margin-bottom: 4px; }
+.ae-field-label { font-size: var(--ae-fs-sm); color: var(--ae-muted); }
+.ae-seg { display: inline-flex; border: 1px solid var(--ae-border); border-radius: var(--ae-r-pill); overflow: hidden; margin-left: auto; }
+.ae-seg-btn {
+  border: 0;
+  background: transparent;
+  color: var(--ae-muted);
+  font-size: var(--ae-fs-xs);
+  font-weight: 600;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.ae-seg-btn:hover { color: var(--ae-fg); background: var(--ae-surface-2); }
+.ae-seg-btn.is-on { background: var(--ae-accent-soft); color: var(--ae-accent); }
+
+/* Active state for icon toggles in the toolbar (the Preview eye). */
+.ae-icon-btn.is-on { color: var(--ae-accent); background: var(--ae-accent-soft); }
+
 /* ---------- Script Info ------------------------------------------------ */
 .ae-si-row {
   display: grid;

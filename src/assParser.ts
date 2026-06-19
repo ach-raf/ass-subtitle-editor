@@ -65,10 +65,17 @@ function countCommas(s: string): number {
 export function parseAss(raw: string): AssModel {
   const bom = raw.startsWith(BOM);
   const text = bom ? raw.slice(BOM.length) : raw;
-  const lines = text.split('\n');
+  // Normalize CRLF (and lone CR) to LF before splitting: the per-line row
+  // regexes anchor on `$`, and in JS `.` does not match `\r`, so a trailing
+  // `\r` (Windows/Aegisub-authored files use CRLF) made every Script Info /
+  // Format / Style / Dialogue line fail to match — yielding an empty model.
+  // The original EOL is remembered so reemitAss can reproduce it byte-for-byte.
+  const crlf = text.includes('\r\n');
+  const lines = text.replace(/\r\n|\r/g, '\n').split('\n');
 
   const model: AssModel = {
     bom,
+    crlf,
     scriptInfo: [],
     styles: { format: [], rows: [] },
     events: { format: [], rows: [] },
@@ -169,6 +176,7 @@ export function reemitAss(model: AssModel): string {
   for (const r of model.events.rows) entries.push({ line: r.line, text: r.raw });
   for (const v of model.verbatim) entries.push({ line: v.line, text: v.text });
   entries.sort((a, b) => a.line - b.line);
-  const text = entries.map((e) => e.text).join('\n');
+  const eol = model.crlf ? '\r\n' : '\n';
+  const text = entries.map((e) => e.text).join(eol);
   return (model.bom ? BOM : '') + text;
 }

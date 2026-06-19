@@ -6,13 +6,17 @@ export interface DecodedTag {
   value: string;
 }
 
-// ass-compiler parses a whole file; we wrap a single Text value in a minimal
-// Events section so it parses just the override tags for us. The real parsed
-// shape (observed from ass-compiler 0.1.16) is:
-//   Text = { raw, combined, parsed: Array<{ tags: ParsedTag[]; text; drawing }> }
-// where each ParsedTag is a single-key object whose key is the tag name
-// (e.g. `{ pos: [320, 400] }`, `{ fad: [200, 200] }`, `{ b: 1 }`).
-export function decodeDialogueTags(text: string): DecodedTag[] {
+/** One parsed fragment of a Dialogue Text value: the override tags in a single
+ *  {\…} block, plus the text that follows it (until the next block). ass-compiler
+ *  parses a whole file, so we wrap a lone Text value in a minimal Events section.
+ *  Shared by decodeDialogueTags (tag chips) and renderRuns (styled preview). */
+export interface DialogueFragment {
+  tags: Record<string, unknown>[]; // each tag is a single-key object, e.g. { pos: [320,400] }
+  text: string;
+  drawing: unknown[];            // non-empty when \p drawing mode produced vector data
+}
+
+export function parseDialogueFragments(text: string): DialogueFragment[] {
   if (!text) return [];
   try {
     const wrapped =
@@ -20,19 +24,22 @@ export function decodeDialogueTags(text: string): DecodedTag[] {
       'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n' +
       `Dialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,${text}`;
     const parsed = parse(wrapped);
-    const dialogueText = parsed.events.dialogue[0].Text;
-    const fragments = dialogueText.parsed;
-    const tags: DecodedTag[] = [];
-    for (const fragment of fragments) {
-      for (const tag of fragment.tags) {
-        const decoded = decodeTag(tag);
-        if (decoded) tags.push(decoded);
-      }
-    }
-    return tags;
+    return parsed.events.dialogue[0].Text.parsed as unknown as DialogueFragment[];
   } catch {
     return [];
   }
+}
+
+/** Flatten every override tag across all fragments into {name, value} chips. */
+export function decodeDialogueTags(text: string): DecodedTag[] {
+  const tags: DecodedTag[] = [];
+  for (const fragment of parseDialogueFragments(text)) {
+    for (const tag of fragment.tags) {
+      const decoded = decodeTag(tag);
+      if (decoded) tags.push(decoded);
+    }
+  }
+  return tags;
 }
 
 // Each parsed tag is a single-key object: { [name]: value }. Extract the name

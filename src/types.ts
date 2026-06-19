@@ -24,6 +24,7 @@ export interface SectionRow {
 
 export interface AssModel {
   bom: boolean;
+  crlf: boolean; // true if the source used CRLF line endings (preserved on re-emit)
   scriptInfo: ScriptInfoEntry[];
   styles: { format: string[]; rows: SectionRow[] };
   events: { format: string[]; rows: SectionRow[] };

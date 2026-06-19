@@ -73,6 +73,25 @@ describe('assParser', () => {
     assert.strictEqual(model.bom, true);
     assert.strictEqual(reemitAss(model), bomText);
   });
+
+  it('parses CRLF line endings (Aegisub/Windows files)', () => {
+    // Regression: split('\n') left a trailing \r on every line, and JS `.` does
+    // not match \r — so `$`-anchored row regexes matched nothing, yielding zero
+    // script info / styles / events. Demon Slayer .ass (CRLF) showed no styles.
+    const crlf = '[Script Info]\r\nTitle: Sample\r\n\r\n[V4+ Styles]\r\nFormat: Name, Fontname\r\nStyle: Default,Arial\r\n\r\n[Events]\r\nFormat: Layer, Text\r\nDialogue: 0,Hello\r\n';
+    const model = parseAss(crlf);
+    assert.strictEqual(model.scriptInfo.length, 1);
+    assert.strictEqual(model.scriptInfo[0].value, 'Sample');
+    assert.strictEqual(model.styles.rows.length, 1);
+    assert.strictEqual(model.styles.rows[0].fields.Name, 'Default');
+    assert.strictEqual(model.events.rows.length, 1);
+    assert.strictEqual(model.events.rows[0].fields.Text, 'Hello');
+  });
+
+  it('round-trips CRLF byte-for-byte (preserves line endings)', () => {
+    const crlf = '[Script Info]\r\nTitle: Sample\r\n[V4+ Styles]\r\nFormat: Name\r\nStyle: Default\r\n';
+    assert.strictEqual(reemitAss(parseAss(crlf)), crlf);
+  });
 });
 
 describe('assParser round-trip (all fixtures)', () => {

@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { AssDocument } from './assDocument';
 import { computeFieldEdit, computeScriptInfoEdit, rowStillValid } from './assEdit';
 import { decodeDialogueTags } from './assTags';
+import { renderRuns, resolveBaseStyle, resolveStyleRow } from './assRender';
 import { buildRosterRow, chunkRoster } from './shared/roster';
 import type { EventDetailView } from './shared/messages';
 import type { AssModel, SectionRow } from './types';
@@ -105,32 +106,47 @@ export class AssPanel {
     this.panel.webview.postMessage({ type: 'eventsRosterEnd', totalCount: total });
   }
 
-  /** Respond to expanded-row detail requests (decoded tags included). */
+  /** Resolve the base style for an event row and render its preview runs.
+   *  baseFontSize is sent alongside so the webview can scale ASS px → row px. */
+  private renderFor(row: SectionRow): { runs: ReturnType<typeof renderRuns>; baseFontSize: number } {
+    const base = resolveBaseStyle(resolveStyleRow(this.doc.model, row.fields.Style));
+    return { runs: renderRuns(row.fields.Text ?? '', base), baseFontSize: base.fontSize ?? 48 };
+  }
+
+  /** Respond to expanded-row detail requests (decoded tags + preview runs). */
   private sendDetails(lines: number[]): void {
     for (const line of lines) {
       const row = this.rowsByLine.get(line);
       if (!row) continue;
+      const { runs, baseFontSize } = this.renderFor(row);
       this.panel.webview.postMessage({
         type: 'eventDetail',
         detail: {
           line,
           fields: { ...row.fields },
           tags: decodeDialogueTags(row.fields.Text ?? ''),
+          runs,
+          baseFontSize,
         },
       });
     }
   }
 
   /** After a panel-initiated event edit: patch one row, not the whole roster.
-   *  Tag chips can only change when the Text field was edited — for any other
-   *  field skip the (relatively costly) decode and let the webview reuse the
-   *  tags already in its detail cache (tags omitted from the message). */
+   *  Tag chips / runs can only change when the Text field was edited — for any
+   *  other field skip the (relatively costly) decode and let the webview reuse
+   *  what its detail cache already holds (tags/runs omitted from the message). */
   private sendEventPatch(line: number, editedField?: string): void {
     const row = this.rowsByLine.get(line);
     if (!row) return;
     const fields = { ...row.fields };
     const detail: EventDetailView = { line, fields };
-    if (editedField === 'Text') detail.tags = decodeDialogueTags(row.fields.Text ?? '');
+    if (editedField === 'Text') {
+      detail.tags = decodeDialogueTags(row.fields.Text ?? '');
+      const { runs, baseFontSize } = this.renderFor(row);
+      detail.runs = runs;
+      detail.baseFontSize = baseFontSize;
+    }
     this.panel.webview.postMessage({
       type: 'eventPatched',
       line,
