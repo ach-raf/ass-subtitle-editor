@@ -1,8 +1,10 @@
 /* =========================================================================
    ASS Subtitle Editor — panel styles
-   Design language: "Studio" — theme-aware (light/dark via --vscode-* tokens),
-   one restrained accent, rounded section cards, breathable spacing.
-   Every --vscode-* var has a dark+ fallback so the sheet renders standalone.
+   Layout + mechanics for the webview (grids, flex, positioning, sizes).
+   The visual skin — the Depth Design System (OKLCH elevation tiers,
+   3-layer composite shadows, functional colors, interaction states) — is
+   applied in the second section at the bottom of this file, which overrides
+   the base tokens and adds depth/borders/shadows to the components here.
    ========================================================================= */
 
 /* ---------- Design tokens ---------------------------------------------- */
@@ -682,3 +684,392 @@ input[type="number"].ae-input { padding-right: 4px; }
 .ae-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
 .ae-scroll::-webkit-scrollbar-thumb { background: var(--ae-surface-2); border-radius: var(--ae-r-pill); border: 2px solid var(--ae-bg); }
 .ae-scroll::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--ae-fg) 25%, transparent); }
+
+
+/* =========================================================================
+   DEPTH DESIGN SYSTEM — visual skin (layered over the layout rules above)
+   OKLCH elevation tiers + 3-layer composite shadows + functional colors.
+   Tokens below override the base; component rules add depth, shadows,
+   borders and interaction states (hover lift, active inset).
+   ========================================================================= */
+
+/* ---------- Depth tokens ------------------------------------------------- */
+:root {
+  /* Elevation tiers — OKLCH, neutral hue 264 (cool blue-grey). Wide spread so
+     each tier is clearly distinct (depth lives in the lightness steps, not
+     just the shadows — especially in dark mode where dark shadows vanish). */
+  --depth-bg-darkest:        oklch(0.135 0.012 264);
+  --depth-bg-base:           oklch(0.218 0.016 264);
+  --depth-bg-elevated:       oklch(0.298 0.020 264);
+  --depth-bg-elevated-hover: oklch(0.338 0.022 264);
+  /* A dedicated "well" tier, darker than the app bg, so inset troughs read as
+     genuinely recessed inside a card rather than blending. */
+  --depth-bg-well:           oklch(0.108 0.012 264);
+
+  /* Composite shadows: inset highlight + sharp edge + ambient. Alphas pushed
+     high enough to register on a dark ground. */
+  --shadow-inset:
+    inset 0 2px 5px oklch(0.01 0.01 264 / 0.85),
+    inset 0 1px 2px oklch(0.01 0.01 264 / 0.65);
+  --shadow-small:
+    0 1px 2px oklch(0.02 0.01 264 / 0.75),
+    0 2px 6px oklch(0.02 0.01 264 / 0.50),
+    inset 0 1px 0 oklch(1 0 0 / 0.09);
+  --shadow-small-hover:
+    0 2px 4px oklch(0.02 0.01 264 / 0.80),
+    0 6px 14px oklch(0.02 0.01 264 / 0.60),
+    inset 0 1px 0 oklch(1 0 0 / 0.11);
+  --shadow-medium:
+    0 2px 4px oklch(0.02 0.01 264 / 0.75),
+    0 12px 28px oklch(0.02 0.01 264 / 0.55),
+    inset 0 1px 0 oklch(1 0 0 / 0.08);
+  --shadow-medium-hover:
+    0 6px 12px oklch(0.02 0.01 264 / 0.80),
+    0 20px 44px oklch(0.02 0.01 264 / 0.65),
+    inset 0 1px 0 oklch(1 0 0 / 0.10);
+
+  /* Crisp container edges (light-over-dark reads as a bevel). */
+  --edge:        oklch(1 0 0 / 0.10);
+  --edge-strong: oklch(1 0 0 / 0.18);
+  --edge-soft:   oklch(1 0 0 / 0.06);
+
+  /* Functional / semantic colors (OKLCH hues from the system). */
+  --color-info:        oklch(0.70 0.15 250);
+  --color-info-strong: oklch(0.62 0.17 250);
+  --color-info-bg:     oklch(0.30 0.07 255);
+  --color-info-border: oklch(0.45 0.10 250);
+  --color-success:     oklch(0.74 0.15 145);
+  --color-warning:     oklch(0.80 0.15 80);
+  --color-warning-bg:  oklch(0.32 0.08 80);
+  --color-error:       oklch(0.68 0.19 25);
+
+  /* Map legacy tokens → depth tiers so base rules inherit the palette. */
+  --ae-bg:        var(--depth-bg-darkest);
+  --ae-fg:        oklch(0.92 0.008 264);
+  --ae-muted:     oklch(0.66 0.015 264);
+  --ae-surface:   var(--depth-bg-base);
+  --ae-surface-2: var(--depth-bg-elevated);
+  --ae-input-bg:  var(--depth-bg-elevated);
+  --ae-input-fg:  var(--ae-fg);
+  --ae-input-border: transparent;
+  --ae-border:       var(--edge);
+  --ae-border-soft:  var(--edge-soft);
+  --ae-swatch-border: var(--edge-strong);
+
+  /* Accent = info blue (one token — swap to teal/green/purple freely). */
+  --ae-accent:     var(--color-info);
+  --ae-accent-fg:  oklch(0.16 0.03 250);
+  --ae-accent-soft: oklch(0.70 0.15 250 / 0.16);
+
+  --ae-btn-bg:       linear-gradient(180deg, oklch(0.60 0.16 250), oklch(0.52 0.17 255));
+  --ae-btn-fg:       oklch(0.99 0 0);
+  --ae-btn-bg-hover: linear-gradient(180deg, oklch(0.66 0.15 250), oklch(0.58 0.17 255));
+  --ae-btn-2-bg:     linear-gradient(180deg, var(--depth-bg-elevated-hover), var(--depth-bg-elevated));
+  --ae-btn-2-fg:     var(--ae-fg);
+  --ae-btn-2-hover:  linear-gradient(180deg, oklch(0.345 0.022 264), var(--depth-bg-elevated-hover));
+  --ae-focus:        var(--color-info);
+
+  --ae-r-sm: 5px;
+  --ae-r:    8px;
+  --ae-r-lg: 10px;
+}
+
+/* Light theme: the system's light OKLCH palette + dark-alpha shadows. */
+body[data-vscode-theme-kind="light"] {
+  --depth-bg-darkest:        oklch(0.915 0.005 264);
+  --depth-bg-base:           oklch(0.965 0.005 264);
+  --depth-bg-elevated:       oklch(1 0 0);
+  --depth-bg-elevated-hover: oklch(0.985 0.006 264);
+  --depth-bg-well:           oklch(0.892 0.006 264);
+
+  --shadow-inset:
+    inset 0 1px 3px oklch(0.3 0.02 264 / 0.20),
+    inset 0 1px 1px oklch(0.3 0.02 264 / 0.14);
+  --shadow-small:
+    0 1px 2px oklch(0.3 0.02 264 / 0.10),
+    0 1px 3px oklch(0.3 0.02 264 / 0.06),
+    inset 0 1px 0 oklch(1 0 0 / 0.9);
+  --shadow-small-hover:
+    0 2px 4px oklch(0.3 0.02 264 / 0.14),
+    0 4px 10px oklch(0.3 0.02 264 / 0.10),
+    inset 0 1px 0 oklch(1 0 0 / 0.9);
+  --shadow-medium:
+    0 1px 2px oklch(0.3 0.02 264 / 0.10),
+    0 6px 16px oklch(0.3 0.02 264 / 0.08),
+    inset 0 1px 0 oklch(1 0 0 / 0.8);
+  --shadow-medium-hover:
+    0 4px 8px oklch(0.3 0.02 264 / 0.14),
+    0 12px 28px oklch(0.3 0.02 264 / 0.12),
+    inset 0 1px 0 oklch(1 0 0 / 0.9);
+
+  --edge:        oklch(0.3 0.02 264 / 0.16);
+  --edge-strong: oklch(0.3 0.02 264 / 0.26);
+  --edge-soft:   oklch(0.3 0.02 264 / 0.10);
+
+  --color-info:        oklch(0.55 0.18 255);
+  --color-info-strong: oklch(0.48 0.19 255);
+  --color-info-bg:     oklch(0.93 0.04 255);
+  --color-info-border: oklch(0.6 0.14 255);
+
+  --ae-fg:    oklch(0.28 0.02 264);
+  --ae-muted: oklch(0.50 0.02 264);
+  --ae-accent:    var(--color-info);
+  --ae-accent-fg: oklch(0.99 0 0);
+  --ae-accent-soft: oklch(0.55 0.18 255 / 0.12);
+  --ae-btn-bg:       linear-gradient(180deg, oklch(0.58 0.16 255), oklch(0.50 0.17 255));
+  --ae-btn-bg-hover: linear-gradient(180deg, oklch(0.63 0.15 255), oklch(0.55 0.17 255));
+  --ae-focus: var(--color-info);
+}
+
+/* High-contrast: drop shadows/soft surfaces, keep raw edges. */
+body[data-vscode-theme-kind="hc-black"],
+body[data-vscode-theme-kind="hc-light"] {
+  --shadow-small: none;
+  --shadow-medium: none;
+  --shadow-medium-hover: none;
+  --shadow-inset: none;
+  --edge: var(--vscode-contrastBorder, oklch(1 0 0 / 0.3));
+  --edge-strong: var(--edge);
+}
+
+/* ---------- App shell ---------------------------------------------------- */
+body { background: var(--depth-bg-darkest); }
+.ae-header {
+  background: linear-gradient(180deg, var(--depth-bg-base), var(--depth-bg-darkest));
+  border-bottom: 1px solid var(--edge);
+  box-shadow: 0 1px 0 oklch(1 0 0 / 0.03);
+}
+.ae-toolbar {
+  background: var(--depth-bg-base);
+  border-bottom: 1px solid var(--edge);
+}
+.ae-brand { color: var(--ae-muted); }
+.ae-brand::before {
+  background: var(--color-info);
+  box-shadow: 0 0 8px oklch(0.7 0.15 250 / 0.6), 0 0 0 3px var(--ae-accent-soft);
+}
+
+/* ---------- Tabs — elevated active pill + gradient underline ------------- */
+.ae-tab {
+  border-radius: var(--ae-r-sm) var(--ae-r-sm) 0 0;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+.ae-tab:hover { background: var(--depth-bg-elevated); color: var(--ae-fg); }
+.ae-tab[aria-selected="true"] { color: var(--ae-fg); background: var(--ae-accent-soft); }
+.ae-tab[aria-selected="true"]::after {
+  left: 8px; right: 8px; height: 2px; border-radius: 2px;
+  background: linear-gradient(90deg, var(--color-info), var(--color-info-strong));
+  box-shadow: 0 0 8px oklch(0.7 0.15 250 / 0.5);
+}
+.ae-tab-count {
+  background: var(--depth-bg-elevated);
+  color: var(--ae-muted);
+  box-shadow: var(--shadow-small);
+}
+.ae-tab[aria-selected="true"] .ae-tab-count {
+  background: var(--ae-accent-soft);
+  color: var(--color-info);
+}
+
+/* ---------- Buttons — depth presets ------------------------------------- */
+.ae-btn {
+  position: relative;
+  background: var(--ae-btn-2-bg);
+  color: var(--ae-btn-2-fg);
+  border: 1px solid var(--edge);
+  box-shadow: var(--shadow-small);
+  overflow: hidden;
+  transition: transform 0.16s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+.ae-btn:hover { background: var(--ae-btn-2-hover); box-shadow: var(--shadow-small-hover); transform: translateY(-1px); }
+.ae-btn:active { transform: translateY(0); box-shadow: var(--shadow-inset); }
+/* Primary/accent: info gradient + shimmer sweep on hover. */
+.ae-btn--primary, .ae-btn--accent {
+  background: var(--ae-btn-bg);
+  color: var(--ae-btn-fg);
+  border: 1px solid oklch(0.45 0.12 250 / 0.6);
+  box-shadow: var(--shadow-small), 0 0 0 1px oklch(0.7 0.15 250 / 0.15);
+}
+.ae-btn--primary:hover, .ae-btn--accent:hover {
+  background: var(--ae-btn-bg-hover);
+  box-shadow: var(--shadow-medium-hover), 0 0 0 1px oklch(0.7 0.15 250 / 0.25);
+  transform: translateY(-1px);
+}
+.ae-btn--primary::before, .ae-btn--accent::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(110deg, transparent 30%, oklch(1 0 0 / 0.18) 50%, transparent 70%);
+  transform: translateX(-120%);
+}
+.ae-btn--primary:hover::before, .ae-btn--accent:hover::before {
+  transform: translateX(120%);
+  transition: transform 0.6s ease;
+}
+/* Icon buttons — interactive depth chips. */
+.ae-icon-btn {
+  background: var(--depth-bg-elevated);
+  color: var(--ae-muted);
+  border: 1px solid var(--edge);
+  box-shadow: var(--shadow-small);
+  transition: transform 0.14s ease, box-shadow 0.16s ease, color 0.14s ease, background 0.14s ease;
+}
+.ae-icon-btn:hover { color: var(--ae-fg); background: var(--depth-bg-elevated-hover); box-shadow: var(--shadow-small-hover); transform: translateY(-1px); }
+.ae-icon-btn:active { transform: translateY(0); box-shadow: var(--shadow-inset); }
+.ae-icon-btn--danger:hover { color: var(--color-error); border-color: oklch(0.68 0.19 25 / 0.4); }
+
+/* ---------- Inputs — elevated wells, inset on focus --------------------- */
+.ae-input, .ae-select, .ae-textarea {
+  background: var(--depth-bg-elevated);
+  color: var(--ae-fg);
+  border: 1px solid var(--edge);
+  box-shadow: var(--shadow-small);
+  transition: box-shadow 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+.ae-input:hover, .ae-select:hover, .ae-textarea:hover {
+  border-color: var(--edge-strong); background: var(--depth-bg-elevated-hover);
+}
+.ae-input:focus, .ae-select:focus, .ae-textarea:focus {
+  border-color: var(--color-info);
+  box-shadow: 0 0 0 3px oklch(0.7 0.15 250 / 0.22), var(--shadow-small);
+}
+.ae-select {
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--color-info) 50%),
+    linear-gradient(135deg, var(--color-info) 50%, transparent 50%);
+}
+
+/* ---------- Cards — depth-card + hover lift ----------------------------- */
+.ae-card {
+  background: var(--depth-bg-base);
+  border: 1px solid var(--edge);
+  box-shadow: var(--shadow-medium);
+  transition: transform 0.24s cubic-bezier(0.4,0,0.2,1), box-shadow 0.24s cubic-bezier(0.4,0,0.2,1), border-color 0.18s ease;
+}
+.ae-card:hover { border-color: var(--edge-strong); box-shadow: var(--shadow-medium-hover); transform: translateY(-2px); }
+.ae-card-head {
+  background: linear-gradient(180deg, oklch(0.235 0.018 264), var(--depth-bg-base));
+  border-bottom: 1px solid var(--edge);
+}
+body[data-vscode-theme-kind="light"] .ae-card-head {
+  background: linear-gradient(180deg, oklch(0.99 0.005 264), var(--depth-bg-base));
+}
+.ae-card[data-collapsed="true"] .ae-card-head { border-bottom-color: transparent; }
+.ae-card-dot { border-color: var(--edge-strong); }
+.ae-card--bad { border-color: oklch(0.68 0.19 25 / 0.5); box-shadow: var(--shadow-medium), 0 0 0 1px oklch(0.68 0.19 25 / 0.25); }
+
+/* ---------- Section groups — inset troughs (real containers) ------------ */
+.ae-section {
+  background: var(--depth-bg-well);
+  border: 1px solid var(--edge);
+  border-radius: var(--ae-r);
+  padding: 12px 12px 14px;
+  box-shadow: var(--shadow-inset);
+}
+.ae-section-title {
+  color: var(--color-info);
+  letter-spacing: 0.09em;
+  text-shadow: 0 0 12px oklch(0.7 0.15 250 / 0.25);
+}
+.ae-section-title::after { background: var(--edge); }
+
+/* ---------- Color controls — inset wells -------------------------------- */
+.ae-color {
+  background: var(--depth-bg-well);
+  border: 1px solid var(--edge);
+  box-shadow: var(--shadow-inset);
+}
+.ae-color-alpha input[type="range"] { background: var(--depth-bg-elevated); box-shadow: var(--shadow-inset); }
+.ae-color-alpha input[type="range"]::-webkit-slider-thumb {
+  background: linear-gradient(180deg, oklch(0.74 0.15 250), var(--color-info-strong));
+  border: 2px solid var(--depth-bg-base);
+  box-shadow: var(--shadow-small);
+}
+.ae-color-raw {
+  background: var(--depth-bg-elevated);
+  border: 1px solid var(--edge);
+  box-shadow: var(--shadow-small);
+}
+
+/* ---------- Bool toggles — interactive; active = info gradient ---------- */
+.ae-toggle {
+  background: var(--depth-bg-elevated);
+  border: 1px solid var(--edge);
+  color: var(--ae-muted);
+  box-shadow: var(--shadow-small);
+  transition: transform 0.14s ease, box-shadow 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+.ae-toggle:hover { color: var(--ae-fg); background: var(--depth-bg-elevated-hover); box-shadow: var(--shadow-small-hover); transform: translateY(-1px); }
+.ae-toggle:active { transform: translateY(0); box-shadow: var(--shadow-inset); }
+.ae-toggle[aria-pressed="true"] {
+  background: var(--ae-btn-bg);
+  color: oklch(0.99 0 0);
+  border-color: oklch(0.45 0.12 250 / 0.55);
+  box-shadow: var(--shadow-small), 0 0 0 1px oklch(0.7 0.15 250 / 0.18);
+}
+.ae-toggle .ae-kbd { background: var(--depth-bg-darkest); box-shadow: var(--shadow-inset); }
+.ae-toggle[aria-pressed="true"] .ae-kbd { background: oklch(0.99 0 0 / 0.18); color: oklch(0.99 0 0); }
+
+/* ---------- Alignment numpad — inset grid, interactive cells ------------ */
+.ae-align {
+  background: var(--depth-bg-well);
+  border: 1px solid var(--edge);
+  box-shadow: var(--shadow-inset);
+}
+.ae-align-btn {
+  background: var(--depth-bg-elevated);
+  color: var(--ae-muted);
+  box-shadow: var(--shadow-small);
+  transition: transform 0.12s ease, box-shadow 0.14s ease, background 0.14s ease, color 0.14s ease;
+}
+.ae-align-btn:hover { color: var(--ae-fg); background: var(--depth-bg-elevated-hover); box-shadow: var(--shadow-small-hover); transform: translateY(-1px); }
+.ae-align-btn[aria-pressed="true"] {
+  background: var(--ae-btn-bg);
+  color: oklch(0.99 0 0);
+  box-shadow: var(--shadow-small), 0 0 0 1px oklch(0.7 0.15 250 / 0.2);
+}
+
+/* ---------- Events — depth cards + accented style chips ----------------- */
+.ae-event {
+  background: var(--depth-bg-base);
+  border: 1px solid var(--edge);
+  box-shadow: var(--shadow-medium);
+  transition: transform 0.22s cubic-bezier(0.4,0,0.2,1), box-shadow 0.22s cubic-bezier(0.4,0,0.2,1), border-color 0.18s ease;
+}
+.ae-event:hover { border-color: var(--edge-strong); box-shadow: var(--shadow-medium-hover); transform: translateY(-1px); }
+.ae-event-head { border-radius: calc(var(--ae-r-lg) - 1px) calc(var(--ae-r-lg) - 1px) 0 0; }
+.ae-event-head:hover { background: var(--depth-bg-elevated); }
+.ae-event[data-open="true"] .ae-event-head { border-bottom: 1px solid var(--edge); background: var(--depth-bg-elevated); }
+.ae-event-body { border-top: none; }
+.ae-event-style-tag {
+  background: var(--ae-accent-soft);
+  color: var(--color-info);
+  border: 1px solid var(--color-info-border);
+  font-weight: 600;
+  box-shadow: var(--shadow-small);
+}
+.ae-event-preview { color: var(--ae-fg); opacity: 0.9; }
+.ae-event-times .ae-t { color: var(--ae-fg); }
+
+/* ---------- Chips — interactive pills ----------------------------------- */
+.ae-chip {
+  background: var(--depth-bg-elevated);
+  border: 1px solid var(--edge);
+  box-shadow: var(--shadow-small);
+}
+.ae-chip-name { color: var(--color-info); }
+
+/* ---------- Badges — functional ----------------------------------------- */
+.ae-badge {
+  background: linear-gradient(180deg, oklch(0.84 0.14 80), oklch(0.74 0.15 80));
+  color: oklch(0.25 0.05 80);
+  box-shadow: var(--shadow-small);
+}
+.ae-warn-text { color: var(--color-warning); }
+.ae-warn-line { color: var(--color-warning); }
+
+/* ---------- Search + spinner -------------------------------------------- */
+.ae-search svg { color: var(--color-info); }
+.ae-spinner { border-color: var(--depth-bg-elevated); border-top-color: var(--color-info); }
+
+/* Field labels a touch brighter for hierarchy */
+.ae-field > label { color: var(--ae-muted); }
+.ae-card-title:focus { box-shadow: 0 0 0 3px oklch(0.7 0.15 250 / 0.22); }
