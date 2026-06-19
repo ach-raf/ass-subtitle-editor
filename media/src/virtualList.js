@@ -2,7 +2,7 @@
 // touches the virtualizer API, so any library drift is contained here. See
 // TanStack/virtual#455: in non-framework use you must supply the exported
 // observeElementRect / observeElementOffset and kick the first computation.
-import { Virtualizer, observeElementRect, observeElementOffset } from '@tanstack/virtual-core';
+import { Virtualizer, observeElementRect, observeElementOffset, elementScroll } from '@tanstack/virtual-core';
 
 /**
  * @param {object} opts
@@ -30,11 +30,24 @@ export function createVirtualList(opts) {
     getItemKey: getKey,
     observeElementRect,
     observeElementOffset,
+    scrollToFn: elementScroll,
     onChange: () => repaint(),
   });
   // Vanilla kickoff (maintainer-confirmed recipe). Guarded so a future rename
   // is a no-op rather than a crash; the observer-driven onChange is the backup.
   if (typeof virtualizer._willUpdate === 'function') virtualizer._willUpdate();
+
+  // measureElement must NOT run synchronously inside the onChange callback:
+  // it mutates the virtualizer's measurements, which fires onChange again,
+  // which would call repaint again -> infinite recursion / stack blowup.
+  // Queue a measurement pass on the next animation frame instead.
+  let measureQueued = false;
+  const pendingMeasure = new Set();
+  function flushMeasures() {
+    measureQueued = false;
+    for (const el of pendingMeasure) virtualizer.measureElement(el);
+    pendingMeasure.clear();
+  }
 
   function repaint() {
     const items = virtualizer.getVirtualItems();
@@ -55,10 +68,14 @@ export function createVirtualList(opts) {
         inner.appendChild(el);
       }
       el.style.transform = `translateY(${it.start}px)`;
-      virtualizer.measureElement(el); // dynamic height (expanded rows are taller)
+      pendingMeasure.add(el); // dynamic height (expanded rows are taller)
     }
     for (const [key, el] of mounted) {
-      if (!seen.has(key)) { el.remove(); mounted.delete(key); }
+      if (!seen.has(key)) { el.remove(); pendingMeasure.delete(el); mounted.delete(key); }
+    }
+    if (!measureQueued && pendingMeasure.size) {
+      measureQueued = true;
+      requestAnimationFrame(flushMeasures);
     }
   }
 
@@ -76,6 +93,16 @@ export function createVirtualList(opts) {
 
   function scrollToIndex(index) { virtualizer.scrollToIndex(index); }
 
+  /** Force every visible row to re-render from scratch. Use after a row's
+   *  content may have changed (expand/collapse, detail arrived, patch) — the
+   *  default repaint() only renders NEW keys and otherwise just repositions
+   *  existing nodes, so it would keep showing stale content. */
+  function rerender() {
+    for (const el of mounted.values()) el.remove();
+    mounted.clear();
+    repaint();
+  }
+
   function destroy() {
     for (const el of mounted.values()) el.remove();
     mounted.clear();
@@ -83,5 +110,5 @@ export function createVirtualList(opts) {
   }
 
   repaint();
-  return { repaint, setCount, scrollToIndex, destroy };
+  return { repaint, rerender, setCount, scrollToIndex, destroy };
 }

@@ -42,6 +42,9 @@ const pendingDetail = new Set();        // lines already requested (coalesce)
 let filteredIndices = null;             // number[] into roster; null = all
 let virtualList = null;                 // createVirtualList() handle
 let scrollEl = null;                    // the events scroll container
+let headerEl = null;                    // header node (for events viewport sizing)
+let toolbarEl = null;                   // toolbar node (for events viewport sizing)
+let eventsSizer = null;                 // current resize listener for .ae-events-scroll
 
 let focusStyleIndex = null;         // set on add/duplicate so the new card is
                                     // scrolled into view + name focused after
@@ -117,7 +120,18 @@ window.addEventListener('message', (e) => {
   switch (msg.type) {
     case 'model':
       model = { bom: msg.bom, scriptInfo: msg.scriptInfo, styles: msg.styles, events: msg.events };
-      render();
+      // Optimization: if we are already on the events tab with a mounted,
+      // fully-received roster, a model re-send (e.g. after an edit) should NOT
+      // rebuild the whole shell — the eventPatched handler already re-rendered
+      // the affected row. render() otherwise always does a full rebuild. NOTE:
+      // this only fires for plain model re-sends; a fresh file/roster load is
+      // driven by eventsRosterBegin/End, whose setCount path handles the count
+      // change without needing render().
+      if (tab === 'events' && virtualList && rosterReady) {
+        updateEventsMeta();
+      } else {
+        render();
+      }
       break;
     case 'eventsRosterBegin':
       roster.length = 0;
@@ -142,13 +156,13 @@ window.addEventListener('message', (e) => {
     case 'eventDetail':
       detailCache.set(msg.detail.line, msg.detail);
       pendingDetail.delete(msg.detail.line);
-      if (virtualList) virtualList.repaint(); // fill the expanded body
+      if (virtualList) virtualList.rerender(); // fill the expanded body
       break;
     case 'eventPatched':
       patchRosterEntry(roster, msg.line, msg.roster);
       detailCache.set(msg.line, msg.detail);
       if (eventsFilter.trim()) filteredIndices = filterRosterIndices(roster, eventsFilter);
-      if (virtualList) virtualList.repaint();
+      if (virtualList) virtualList.rerender();
       updateEventsMeta();
       break;
   }
@@ -164,19 +178,13 @@ function render() {
   if (!model) { root.replaceChildren(loadingState()); return; }
   const prev = document.querySelector('.ae-scroll');
   const top = prev ? prev.scrollTop : 0; // preserve scroll across re-render
-  // If we are staying on the events tab and the list is already mounted, a
-  // model re-send (e.g. after an edit) should NOT rebuild the whole shell —
-  // the eventPatched handler already repainted the affected row.
-  const alreadyOnEvents = tab === 'events' && document.querySelector('.ae-tabbar');
-  if (alreadyOnEvents && rosterReady) {
-    // Refresh non-events parts (styles select options etc.) cheaply by repainting.
-    if (virtualList) virtualList.repaint();
-    updateEventsMeta();
-    return;
-  }
   root.replaceChildren(appShell());
   const next = document.querySelector('.ae-scroll');
   if (next) next.scrollTop = top;
+  // Now that header/toolbar are attached they report real offsetHeight; re-size
+  // the events viewport (no-op off the events tab) so the virtualizer sees the
+  // correct bounded height on this paint.
+  if (eventsSizer) eventsSizer();
   // A just-added/duplicated style should surface itself, not land out of view.
   // Re-apply on every render while the intent is set (the host can fire the
   // model more than once per edit); the intent is cleared by the first real
@@ -204,9 +212,13 @@ function focusStyleCard(index) {
 }
 
 function appShell() {
+  const hd = header();
+  const tb = toolbar();
+  headerEl = hd;
+  toolbarEl = tb;
   return h('div', { class: 'ae-app' },
-    header(),
-    toolbar(),
+    hd,
+    tb,
     h('div', { class: 'ae-scroll' }, h('div', { class: 'ae-stack' }, content())),
   );
 }
@@ -470,7 +482,21 @@ function fieldWith(label, control) {
 /* ---------- Events tab (virtualized) ---------------------------------- */
 function eventsContent() {
   const wrap = h('div', { class: 'ae-stack' });
+  // The virtualizer needs a scroll container with a BOUNDED height (its
+  // viewport). .ae-scroll is the page scroller (overflow-y:auto, flex:1 of the
+  // 100vh app); a nested auto-div would grow to content and the virtualizer
+  // would see an unbounded viewport and render every row. Bound it explicitly
+  // to the remaining viewport below header+toolbar+padding, and keep it in sync
+  // if the window resizes.
   const scroller = h('div', { class: 'ae-events-scroll' });
+  const sizeScroll = () => {
+    const reserved = (headerEl?.offsetHeight || 0) + (toolbarEl?.offsetHeight || 0) + 96;
+    scroller.style.height = Math.max(160, window.innerHeight - reserved) + 'px';
+  };
+  sizeScroll();
+  if (eventsSizer) window.removeEventListener('resize', eventsSizer);
+  eventsSizer = sizeScroll;
+  window.addEventListener('resize', eventsSizer);
   scrollEl = scroller;
   const progress = h('div', { class: 'ae-events-progress', id: 'ae-events-progress' }, 'Loading events…');
   wrap.appendChild(progress);
@@ -513,7 +539,7 @@ function mountEventsList() {
 function mountOrRepaintEvents() {
   if (!scrollEl) return;
   if (!virtualList) mountEventsList();
-  else virtualList.setCount();
+  else { virtualList.setCount(); updateEventsMeta(); }
 }
 
 function updateEventsMeta() {
@@ -559,8 +585,8 @@ function eventCard(r) {
   const card = h('div', { class: 'ae-event', 'data-open': String(open), 'data-line': String(r.line) });
 
   const head = h('div', { class: 'ae-event-head', role: 'button', tabindex: '0',
-    onclick: () => { toggleEvent(r.line); if (virtualList) virtualList.repaint(); },
-    onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleEvent(r.line); if (virtualList) virtualList.repaint(); } },
+    onclick: () => { toggleEvent(r.line); if (virtualList) virtualList.rerender(); },
+    onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleEvent(r.line); if (virtualList) virtualList.rerender(); } },
   },
     h('span', { class: 'ae-event-chevron' }, icon(open ? 'chevron' : 'chevronRight')),
     h('span', { class: 'ae-event-times' },
